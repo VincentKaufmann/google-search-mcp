@@ -1,8 +1,8 @@
 # noapi-google-search-mcp
 
-**Google Search for Local LLMs — No API Key Required**
+**Google Search for Local LLMs - NoAPI Key Required**
 
-An MCP (Model Context Protocol) server that gives your local LLM real Google search and browsing abilities using headless Chromium via Playwright. No Google API key, no Custom Search Engine setup, no usage limits — just real Google results.
+An MCP (Model Context Protocol) server that gives your local LLM real Google search and browsing abilities using headless Chromium via Playwright. No Google API key, no Custom Search Engine setup, no usage limits - justreal Google results.
 
 Works with LM Studio, Claude Desktop, and any MCP-compatible client.
 
@@ -15,56 +15,24 @@ Works with LM Studio, Claude Desktop, and any MCP-compatible client.
 | Setup time | `pip install` + go | Create Google Cloud project, enable API, get key, configure CSE |
 | Results quality | Real Google results | Custom Search Engine (different ranking) |
 | JavaScript pages | Renders them (Chromium) | Cannot render JS |
+| Google Search | Built-in (with filters) | Basic only |
+| Google Shopping | Built-in | Not available |
+| Google Flights | Built-in | Not available |
+| Google Hotels | Built-in | Not available |
+| Google Translate | Built-in | Separate API needed |
 | Google Maps | Built-in | Not available |
 | Google Weather | Built-in | Not available |
 | Google Finance | Built-in | Not available |
 | Google News | Built-in | Usually not available |
 | Google Scholar | Built-in | Not available |
+| Google Books | Built-in | Not available |
 | Google Images | Built-in | Separate API needed |
 | Google Trends | Built-in | Separate API needed |
 | Page fetching | Built-in `visit_page` tool | Usually separate |
 
 ## Tools
 
-### `google_maps` — Places Search
-
-Search Google Maps for restaurants, businesses, and places with ratings, addresses, and reviews.
-
-**Parameters:**
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `query` | Place search query (required) | `"pizza near Central Park"` |
-| `num_results` | Number of results (1-10, default 5) | `5` |
-
----
-
-### `google_weather` — Weather Lookup
-
-Get current weather conditions and forecast for any location worldwide.
-
-**Parameters:**
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `location` | City or location (required) | `"Dubai"`, `"New York"`, `"Tokyo"` |
-
-Returns: temperature (°C/°F), condition, precipitation, humidity, wind, and multi-day forecast.
-
----
-
-### `google_finance` — Stock & Market Data
-
-Look up stock prices, market data, and company information from Google Finance.
-
-**Parameters:**
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `query` | Stock ticker with exchange or company name (required) | `"AAPL:NASDAQ"`, `"TSLA:NASDAQ"` |
-
-Returns: current price, change, market info, key stats, and company description.
-
----
-
-### `google_search` — Web Search
+### `google_search` - Web Search
 
 Search Google and get structured results with titles, URLs, and snippets.
 
@@ -83,7 +51,98 @@ Search Google and get structured results with titles, URLs, and snippets.
 
 ---
 
-### `google_news` — News Search
+### `google_shopping` - Product Search
+
+Search Google Shopping for products with prices, stores, and ratings.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `query` | Product search query (required) | `"Sony WH-1000XM5"` |
+| `num_results` | Number of results (1-10, default 5) | `5` |
+
+Returns: product name, price, store, and rating.
+
+---
+
+### `google_flights` - Flight Search
+
+Search Google Flights for flight options, prices, and travel times.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `origin` | Departure city or airport (required) | `"New York"`, `"LAX"` |
+| `destination` | Arrival city or airport (required) | `"London"`, `"NRT"` |
+| `date` | Departure date (optional) | `"March 15"`, `"2025-03-15"` |
+| `return_date` | Return date for round trips (optional) | `"March 22"` |
+
+---
+
+### `google_hotels` - Hotel Search
+
+Search for hotels and accommodation with prices and ratings.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `query` | Hotel search with location (required) | `"Paris"`, `"Tokyo near Shibuya"` |
+| `num_results` | Number of results (1-10, default 5) | `5` |
+
+---
+
+### `google_translate` - Translation
+
+Translate text between languages using Google Translate.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `text` | Text to translate (required) | `"Hello, how are you?"` |
+| `to_language` | Target language (required) | `"Spanish"`, `"Japanese"`, `"French"` |
+| `from_language` | Source language (optional, auto-detected) | `"English"`, `"German"` |
+
+---
+
+### `google_maps` - Places Search
+
+Search Google Maps for restaurants, businesses, and places with ratings, addresses, and reviews.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `query` | Place search query (required) | `"pizza near Central Park"` |
+| `num_results` | Number of results (1-10, default 5) | `5` |
+
+---
+
+### `google_weather` - Weather Lookup
+
+Get current weather conditions and forecast for any location worldwide.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `location` | City or location (required) | `"Dubai"`, `"New York"`, `"Tokyo"` |
+
+Returns: temperature (°C/°F), condition, precipitation, humidity, wind, and multi-day forecast.
+
+---
+
+### `google_finance` - Stock & Market Data
+
+Look up stock prices, market data, and company information from Google Finance.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `query` | Stock ticker with exchange or company name (required) | `"AAPL:NASDAQ"`, `"TSLA:NASDAQ"` |
+
+Returns: current price, change, market info, key stats, and company description.
+
+---
+
+### `google_news` - News Search
 
 Search Google News for recent headlines with source and timestamp.
 
@@ -95,7 +154,7 @@ Search Google News for recent headlines with source and timestamp.
 
 ---
 
-### `google_scholar` — Academic Search
+### `google_scholar` - Academic Search
 
 Search Google Scholar for papers, citations, and research.
 
@@ -109,7 +168,19 @@ Returns: title, URL, authors, citation count, and snippet for each paper.
 
 ---
 
-### `google_images` — Image Search
+### `google_books` - Book Search
+
+Search Google Books for books, textbooks, and publications.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `query` | Book search query (required) | `"machine learning"` |
+| `num_results` | Number of results (1-10, default 5) | `5` |
+
+---
+
+### `google_images` - Image Search
 
 Search Google Images and get image URLs.
 
@@ -121,7 +192,7 @@ Search Google Images and get image URLs.
 
 ---
 
-### `google_trends` — Trends Lookup
+### `google_trends` - Trends Lookup
 
 Check Google Trends for topic interest, related topics, and related queries.
 
@@ -132,7 +203,7 @@ Check Google Trends for topic interest, related topics, and related queries.
 
 ---
 
-### `visit_page` — Page Fetcher
+### `visit_page` - Page Fetcher
 
 Fetch any URL and extract readable text content. Use after search to read full articles.
 
@@ -149,14 +220,59 @@ You don't need to teach the LLM anything. MCP automatically exposes all tool nam
 
 Here are example prompts you can type into LM Studio or Claude Desktop, and which tool the LLM will use:
 
-### Maps & Places
+### Web Search
 | What you type | Tool called | Parameters used |
 |--------------|-------------|-----------------|
-| *"Find Italian restaurants near Times Square"* | `google_maps` | `query` |
-| *"Where are the best coffee shops in Berlin?"* | `google_maps` | `query` |
-| *"Search for hotels in Tokyo"* | `google_maps` | `query` |
-| *"Find EV charging stations in San Francisco"* | `google_maps` | `query` |
-| *"What are the top-rated gyms in London?"* | `google_maps` | `query` |
+| *"Search for the best Python web frameworks"* | `google_search` | `query` |
+| *"Find Reddit discussions about home lab setups"* | `google_search` | `query` + `site="reddit.com"` |
+| *"Search Stack Overflow for async Python examples"* | `google_search` | `query` + `site="stackoverflow.com"` |
+| *"What's new in AI this week?"* | `google_search` | `query` + `time_range="past_week"` |
+| *"Search Hacker News for posts about Rust"* | `google_search` | `query` + `site="news.ycombinator.com"` |
+| *"Find GitHub repos for MCP servers"* | `google_search` | `query` + `site="github.com"` |
+| *"Get page 2 of results for machine learning tutorials"* | `google_search` | `query` + `page=2` |
+| *"Search for restaurants in Tokyo in Japanese"* | `google_search` | `query` + `language="ja"` + `region="jp"` |
+| *"Find German news about the EU from the past month"* | `google_search` | `query` + `language="de"` + `time_range="past_month"` |
+
+### Shopping
+| What you type | Tool called |
+|--------------|-------------|
+| *"Find the cheapest MacBook Air"* | `google_shopping` |
+| *"Compare prices for Sony WH-1000XM5 headphones"* | `google_shopping` |
+| *"How much does a Nintendo Switch cost?"* | `google_shopping` |
+| *"Search for running shoes under $100"* | `google_shopping` |
+
+### Flights
+| What you type | Tool called |
+|--------------|-------------|
+| *"Find flights from New York to London"* | `google_flights` |
+| *"Search for cheap flights from LA to Tokyo"* | `google_flights` |
+| *"Flights from San Francisco to Paris on March 15"* | `google_flights` |
+| *"How much are flights from Dubai to Bangkok?"* | `google_flights` |
+
+### Hotels
+| What you type | Tool called |
+|--------------|-------------|
+| *"Find hotels in Paris for next weekend"* | `google_hotels` |
+| *"Search for cheap hotels in Tokyo"* | `google_hotels` |
+| *"Best hotels near Times Square New York"* | `google_hotels` |
+| *"Find 5-star hotels in Dubai"* | `google_hotels` |
+
+### Translation
+| What you type | Tool called |
+|--------------|-------------|
+| *"Translate 'hello world' to Japanese"* | `google_translate` |
+| *"How do you say 'thank you' in French?"* | `google_translate` |
+| *"Translate this to Spanish: The weather is nice today"* | `google_translate` |
+| *"What does 'Guten Morgen' mean in English?"* | `google_translate` |
+
+### Maps & Places
+| What you type | Tool called |
+|--------------|-------------|
+| *"Find Italian restaurants near Times Square"* | `google_maps` |
+| *"Where are the best coffee shops in Berlin?"* | `google_maps` |
+| *"Search for hotels in Tokyo"* | `google_maps` |
+| *"Find EV charging stations in San Francisco"* | `google_maps` |
+| *"What are the top-rated gyms in London?"* | `google_maps` |
 
 ### Weather
 | What you type | Tool called |
@@ -174,19 +290,6 @@ Here are example prompts you can type into LM Studio or Claude Desktop, and whic
 | *"Look up NVIDIA market cap"* | `google_finance` |
 | *"How is the S&P 500 doing today?"* | `google_finance` |
 
-### Web Search
-| What you type | Tool called | Parameters used |
-|--------------|-------------|-----------------|
-| *"Search for the best Python web frameworks"* | `google_search` | `query` |
-| *"Find Reddit discussions about home lab setups"* | `google_search` | `query` + `site="reddit.com"` |
-| *"Search Stack Overflow for async Python examples"* | `google_search` | `query` + `site="stackoverflow.com"` |
-| *"What's new in AI this week?"* | `google_search` | `query` + `time_range="past_week"` |
-| *"Search Hacker News for posts about Rust"* | `google_search` | `query` + `site="news.ycombinator.com"` |
-| *"Find GitHub repos for MCP servers"* | `google_search` | `query` + `site="github.com"` |
-| *"Get page 2 of results for machine learning tutorials"* | `google_search` | `query` + `page=2` |
-| *"Search for restaurants in Tokyo in Japanese"* | `google_search` | `query` + `language="ja"` + `region="jp"` |
-| *"Find German news about the EU from the past month"* | `google_search` | `query` + `language="de"` + `time_range="past_month"` |
-
 ### News
 | What you type | Tool called |
 |--------------|-------------|
@@ -200,6 +303,13 @@ Here are example prompts you can type into LM Studio or Claude Desktop, and whic
 | *"Find papers on transformer attention mechanisms"* | `google_scholar` |
 | *"Look up academic research about CRISPR"* | `google_scholar` |
 | *"What does the research say about intermittent fasting?"* | `google_scholar` |
+
+### Books
+| What you type | Tool called |
+|--------------|-------------|
+| *"Find books about machine learning"* | `google_books` |
+| *"Search for books by Stephen King"* | `google_books` |
+| *"What are the best books on Python programming?"* | `google_books` |
 
 ### Images
 | What you type | Tool called |
@@ -221,7 +331,7 @@ Here are example prompts you can type into LM Studio or Claude Desktop, and whic
 
 ## Installation
 
-### Quick Install (pipx — recommended)
+### Quick Install (pipx - recommended)
 
 ```bash
 pipx install noapi-google-search-mcp

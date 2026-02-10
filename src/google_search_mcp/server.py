@@ -13,6 +13,11 @@ Tools provided:
     - google_maps: Search Google Maps for places, restaurants, businesses
     - google_finance: Look up stock prices and market data
     - google_weather: Get current weather and forecasts
+    - google_shopping: Search Google Shopping for products and prices
+    - google_books: Search Google Books for books and publications
+    - google_translate: Translate text between languages
+    - google_flights: Search for flights between destinations
+    - google_hotels: Search for hotels and accommodation
     - visit_page: Fetch a URL and return its text content
 """
 
@@ -311,7 +316,7 @@ async def _do_google_news(query: str, num_results: int = 5) -> str:
                 if r.get("time"):
                     source_info.append(r["time"])
                 if source_info:
-                    lines.append(f"   Source: {' — '.join(source_info)}")
+                    lines.append(f"   Source: {' - '.join(source_info)}")
                 if r.get("snippet"):
                     lines.append(f"   {r['snippet']}")
                 lines.append("")
@@ -869,7 +874,7 @@ async def _do_google_finance(query: str) -> str:
                 () => {
                     const data = {};
 
-                    // Price — use data attribute (most reliable)
+                    // Price - use data attribute (most reliable)
                     const dataEl = document.querySelector('[data-last-price]');
                     if (dataEl) {
                         data.price = dataEl.getAttribute('data-last-price');
@@ -901,7 +906,7 @@ async def _do_google_finance(query: str) -> str:
                     const nameEl = document.querySelector('.zzDege');
                     data.name = nameEl ? nameEl.innerText.trim() : '';
 
-                    // Key stats — use first line only (labels include tooltip descriptions)
+                    // Key stats - use first line only (labels include tooltip descriptions)
                     const stats = {};
                     const statRows = document.querySelectorAll('.gyFHrc .P6K39c, .eYanAe .P6K39c, table.slpEwd tr');
                     for (const row of statRows) {
@@ -1128,7 +1133,7 @@ async def _do_google_weather(location: str) -> str:
                     if f.get("high") and f.get("low"):
                         day_str += f": {f['high']}° / {f['low']}°"
                     if f.get("condition"):
-                        day_str += f" — {f['condition']}"
+                        day_str += f" - {f['condition']}"
                     lines.append(day_str)
 
             return "\n".join(lines)
@@ -1155,6 +1160,621 @@ async def google_weather(location: str) -> str:
         location: The city or location to get weather for (e.g. "Dubai", "New York", "London, UK", "Tokyo").
     """
     return await _do_google_weather(location)
+
+
+# ---------------------------------------------------------------------------
+# google_shopping
+# ---------------------------------------------------------------------------
+
+async def _do_google_shopping(query: str, num_results: int = 5) -> str:
+    """Search Google Shopping for products and prices."""
+    encoded_query = quote_plus(query)
+    url = f"https://www.google.com/search?q={encoded_query}&hl=en&tbm=shop&num={num_results + 5}"
+
+    async with async_playwright() as pw:
+        browser, context = await _launch_browser(pw)
+        page = await context.new_page()
+
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await _dismiss_consent(page)
+            await page.wait_for_timeout(2000)
+
+            results = await page.evaluate(
+                r"""
+                (numResults) => {
+                    const results = [];
+
+                    // Google Shopping uses various container classes
+                    const items = document.querySelectorAll(
+                        '.sh-dgr__content, .sh-dlr__list-result, ' +
+                        '.KZmu8e, .i0X6df, .xcR77, ' +
+                        '[data-docid], .sh-pr__product-result'
+                    );
+
+                    for (const el of items) {
+                        if (results.length >= numResults) break;
+
+                        const titleEl = el.querySelector('h3, h4, .tAxDx, .Xjkr3b, .EI11Pd');
+                        const priceEl = el.querySelector('.a8Pemb, .HRLxBb, .kHxwFf, .T14wmb, b');
+                        const storeEl = el.querySelector('.aULzUe, .IuHnof, .E5ocAb, .dD8iuc');
+                        const linkEl = el.querySelector('a[href]');
+                        const ratingEl = el.querySelector('.Rsc7Yb, .QIrs8, .yi40Hd');
+
+                        const title = titleEl ? titleEl.innerText.trim() : '';
+                        if (!title) continue;
+
+                        results.push({
+                            title: title,
+                            price: priceEl ? priceEl.innerText.trim() : '',
+                            store: storeEl ? storeEl.innerText.trim() : '',
+                            rating: ratingEl ? ratingEl.innerText.trim() : '',
+                            url: linkEl ? linkEl.href : '',
+                        });
+                    }
+
+                    // Fallback: parse the visible text on shopping results
+                    if (results.length === 0) {
+                        const body = document.querySelector('#search, #rso, main');
+                        if (body) {
+                            const text = body.innerText;
+                            // Look for price patterns to split products
+                            const pricePattern = /(?:[$£€]|CHF|USD|EUR)\s*[\d,.]+/g;
+                            const matches = [...text.matchAll(pricePattern)];
+                            if (matches.length > 0) {
+                                return [{
+                                    title: '__raw__',
+                                    raw_text: text.substring(0, 3000),
+                                    price: '', store: '', rating: '', url: ''
+                                }];
+                            }
+                        }
+                    }
+
+                    return results;
+                }
+                """,
+                num_results,
+            )
+
+            if not results:
+                return f"No shopping results found for: {query}"
+
+            # Handle raw text fallback
+            if len(results) == 1 and results[0].get("title") == "__raw__":
+                raw = results[0].get("raw_text", "")
+                raw = re.sub(r'\n{3,}', '\n\n', raw).strip()
+                return f"Google Shopping Results for: {query}\n\n{raw}"
+
+            lines = [f"Google Shopping Results for: {query}\n"]
+            for i, r in enumerate(results[:num_results], 1):
+                lines.append(f"{i}. {r['title']}")
+                if r.get("price"):
+                    lines.append(f"   Price: {r['price']}")
+                if r.get("store"):
+                    lines.append(f"   Store: {r['store']}")
+                if r.get("rating"):
+                    lines.append(f"   Rating: {r['rating']}")
+                if r.get("url"):
+                    lines.append(f"   URL: {r['url']}")
+                lines.append("")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            return f"Shopping search failed: {e}"
+
+        finally:
+            await browser.close()
+
+
+@mcp.tool()
+async def google_shopping(query: str, num_results: int = 5) -> str:
+    """Search Google Shopping for products with prices, stores, and ratings.
+
+    Sample prompts that trigger this tool:
+        - "Find the cheapest MacBook Air"
+        - "Compare prices for Sony WH-1000XM5 headphones"
+        - "How much does a Nintendo Switch cost?"
+        - "Search for running shoes under $100"
+        - "Find deals on mechanical keyboards"
+
+    Args:
+        query: The product search query string.
+        num_results: Number of results to return (default 5, max 10).
+    """
+    num_results = max(1, min(num_results, 10))
+    return await _do_google_shopping(query, num_results)
+
+
+# ---------------------------------------------------------------------------
+# google_books
+# ---------------------------------------------------------------------------
+
+async def _do_google_books(query: str, num_results: int = 5) -> str:
+    """Search Google Books for books and publications."""
+    encoded_query = quote_plus(query)
+    url = f"https://www.google.com/search?q={encoded_query}&hl=en&tbm=bks&num={num_results + 5}"
+
+    async with async_playwright() as pw:
+        browser, context = await _launch_browser(pw)
+        page = await context.new_page()
+
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await _dismiss_consent(page)
+            await page.wait_for_timeout(2000)
+
+            results = await page.evaluate(
+                r"""
+                (numResults) => {
+                    const results = [];
+
+                    // Find all h3 elements that are book results
+                    const allH3 = document.querySelectorAll('h3');
+                    for (const h3 of allH3) {
+                        if (results.length >= numResults) break;
+
+                        const title = h3.innerText.trim();
+                        if (!title || title.length < 3) continue;
+                        // Skip navigation/header h3s
+                        if (title === 'Search Results' || title === 'Filters and topics') continue;
+
+                        // Walk up to find the result container
+                        let container = h3.closest('.g') || h3.parentElement?.parentElement?.parentElement;
+                        if (!container) continue;
+
+                        // Get the link
+                        const linkEl = container.querySelector('a[href*="books.google"], a[href^="http"]');
+                        const url = linkEl ? linkEl.href : '';
+
+                        // Get snippet
+                        const snippetEl = container.querySelector('.VwiC3b, .cmlJmd, [data-sncf]');
+                        const snippet = snippetEl ? snippetEl.innerText.trim() : '';
+
+                        // Get author - look for text between the title and snippet
+                        let author = '';
+                        const metaEls = container.querySelectorAll('span, cite');
+                        for (const el of metaEls) {
+                            const t = el.innerText.trim();
+                            if (t && t !== title && !t.includes('http') &&
+                                (t.includes(',') || t.includes('·') || /\d{4}/.test(t)) &&
+                                t.length < 200) {
+                                author = t;
+                                break;
+                            }
+                        }
+
+                        results.push({ title, url, author, snippet });
+                    }
+                    return results;
+                }
+                """,
+                num_results,
+            )
+
+            if not results:
+                return f"No book results found for: {query}"
+
+            lines = [f"Google Books Results for: {query}\n"]
+            for i, r in enumerate(results[:num_results], 1):
+                lines.append(f"{i}. {r['title']}")
+                if r.get("author"):
+                    lines.append(f"   Author: {r['author']}")
+                if r.get("url"):
+                    lines.append(f"   URL: {r['url']}")
+                if r.get("snippet"):
+                    lines.append(f"   {r['snippet']}")
+                lines.append("")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            return f"Book search failed: {e}"
+
+        finally:
+            await browser.close()
+
+
+@mcp.tool()
+async def google_books(query: str, num_results: int = 5) -> str:
+    """Search Google Books for books, textbooks, and publications.
+
+    Sample prompts that trigger this tool:
+        - "Find books about machine learning"
+        - "Search for books by Stephen King"
+        - "What are the best books on Python programming?"
+        - "Find textbooks on linear algebra"
+        - "Look up books about the history of AI"
+
+    Args:
+        query: The book search query string.
+        num_results: Number of results to return (default 5, max 10).
+    """
+    num_results = max(1, min(num_results, 10))
+    return await _do_google_books(query, num_results)
+
+
+# ---------------------------------------------------------------------------
+# google_translate
+# ---------------------------------------------------------------------------
+
+LANGUAGE_CODES = {
+    "english": "en", "spanish": "es", "french": "fr", "german": "de",
+    "italian": "it", "portuguese": "pt", "japanese": "ja", "korean": "ko",
+    "chinese": "zh-CN", "arabic": "ar", "russian": "ru", "hindi": "hi",
+    "dutch": "nl", "swedish": "sv", "turkish": "tr", "polish": "pl",
+    "thai": "th", "vietnamese": "vi", "indonesian": "id", "greek": "el",
+    "hebrew": "he", "czech": "cs", "danish": "da", "finnish": "fi",
+    "norwegian": "no", "romanian": "ro", "hungarian": "hu", "ukrainian": "uk",
+}
+
+
+async def _do_google_translate(text: str, to_language: str, from_language: str = "") -> str:
+    """Translate text using Google Translate directly."""
+    # Resolve language names to codes
+    tl = LANGUAGE_CODES.get(to_language.lower(), to_language.lower())
+    sl = LANGUAGE_CODES.get(from_language.lower(), from_language.lower()) if from_language else "auto"
+
+    encoded_text = quote_plus(text)
+    url = f"https://translate.google.com/?sl={sl}&tl={tl}&text={encoded_text}&op=translate"
+
+    async with async_playwright() as pw:
+        browser, context = await _launch_browser(pw)
+        page = await context.new_page()
+
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await _dismiss_consent(page)
+            # Wait for translation to load
+            await page.wait_for_timeout(3000)
+
+            data = await page.evaluate(
+                r"""
+                () => {
+                    const data = {};
+
+                    // Translation output is in spans with lang attribute inside the result container
+                    const resultContainer = document.querySelector('[data-result-index] .HwtZe, .lRu31, [jsname="W297wb"]');
+                    if (resultContainer) {
+                        data.translation = resultContainer.innerText.trim();
+                    }
+
+                    // Fallback: look for the output textarea or contenteditable
+                    if (!data.translation) {
+                        const outputArea = document.querySelector(
+                            '.J0lOec, [aria-label*="Translation"], ' +
+                            'span[jsname="W297wb"], .ryNqvb, ' +
+                            '[data-language-to-translate-into] .Y2IQFc'
+                        );
+                        if (outputArea) {
+                            data.translation = outputArea.innerText.trim();
+                        }
+                    }
+
+                    // Last resort: get all text containers and find the non-source one
+                    if (!data.translation) {
+                        const containers = document.querySelectorAll('.Y2IQFc');
+                        if (containers.length >= 2) {
+                            data.translation = containers[containers.length - 1].innerText.trim();
+                        }
+                    }
+
+                    return data;
+                }
+                """
+            )
+
+            if not data.get("translation") or data["translation"] == text:
+                return f"Could not translate: {text}"
+
+            lines = ["Google Translate\n"]
+            lines.append(f"Original: {text}")
+            lines.append(f"Translation ({to_language}): {data['translation']}")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            return f"Translation failed: {e}"
+
+        finally:
+            await browser.close()
+
+
+@mcp.tool()
+async def google_translate(text: str, to_language: str, from_language: str = "") -> str:
+    """Translate text from one language to another using Google Translate.
+
+    Sample prompts that trigger this tool:
+        - "Translate 'hello world' to Japanese"
+        - "How do you say 'thank you' in French?"
+        - "Translate this to Spanish: The weather is nice today"
+        - "What does 'Guten Morgen' mean in English?"
+        - "Translate 'I love programming' to Korean"
+
+    Args:
+        text: The text to translate.
+        to_language: Target language (e.g. "Spanish", "Japanese", "French", "German", "Korean", "Chinese", "Arabic").
+        from_language: Source language (optional, auto-detected if empty).
+    """
+    return await _do_google_translate(text, to_language, from_language or "")
+
+
+# ---------------------------------------------------------------------------
+# google_flights
+# ---------------------------------------------------------------------------
+
+async def _do_google_flights(
+    origin: str, destination: str, date: str = "", return_date: str = ""
+) -> str:
+    """Search Google Flights for flight information."""
+    query_parts = [f"flights from {origin} to {destination}"]
+    if date:
+        query_parts.append(f"on {date}")
+    if return_date:
+        query_parts.append(f"return {return_date}")
+
+    search_query = " ".join(query_parts)
+    encoded_query = quote_plus(search_query)
+    url = f"https://www.google.com/search?q={encoded_query}&hl=en"
+
+    async with async_playwright() as pw:
+        browser, context = await _launch_browser(pw)
+        page = await context.new_page()
+
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await _dismiss_consent(page)
+            await page.wait_for_timeout(3000)
+
+            data = await page.evaluate(
+                """
+                () => {
+                    const data = { flights: [] };
+
+                    // Google's flight card in search results
+                    const flightCards = document.querySelectorAll(
+                        '.OgdJid, ' +
+                        '.zBTtmb, ' +
+                        '[data-attrid*="flight"] .wUrVib, ' +
+                        '.fltt-card, ' +
+                        '.gws-flights__result'
+                    );
+
+                    for (const card of flightCards) {
+                        const text = card.innerText.trim();
+                        if (text && text.length > 10) {
+                            data.flights.push({ raw: text });
+                        }
+                    }
+
+                    // Try the flights widget
+                    if (data.flights.length === 0) {
+                        const widget = document.querySelector(
+                            '[data-attrid*="flight"], ' +
+                            '.gws-flights, ' +
+                            '.VkpGBb[data-attrid*="flight"]'
+                        );
+                        if (widget) {
+                            data.widget_text = widget.innerText.substring(0, 3000);
+                        }
+                    }
+
+                    // Also grab the "View all flights" link if present
+                    const viewAll = document.querySelector('a[href*="google.com/travel/flights"]');
+                    data.flights_url = viewAll ? viewAll.href : '';
+
+                    // Get the knowledge panel or featured snippet about flights
+                    const panel = document.querySelector('.kp-wholepage, .liYKde, .ULSxyf');
+                    if (panel) {
+                        const flightInfo = panel.innerText.substring(0, 2000);
+                        if (flightInfo.toLowerCase().includes('flight') || flightInfo.includes('$') || flightInfo.includes('hr')) {
+                            data.panel_text = flightInfo;
+                        }
+                    }
+
+                    return data;
+                }
+                """
+            )
+
+            lines = [f"Google Flights: {origin} to {destination}\n"]
+            if date:
+                lines.append(f"Date: {date}")
+            if return_date:
+                lines.append(f"Return: {return_date}")
+            lines.append("")
+
+            has_data = False
+
+            if data.get("flights"):
+                for f in data["flights"][:5]:
+                    raw = f.get("raw", "")
+                    # Clean up and format
+                    raw = re.sub(r'\n{2,}', '\n', raw).strip()
+                    lines.append(raw)
+                    lines.append("")
+                has_data = True
+
+            if data.get("widget_text"):
+                text = re.sub(r'\n{3,}', '\n\n', data["widget_text"]).strip()
+                lines.append(text)
+                has_data = True
+
+            if data.get("panel_text") and not has_data:
+                text = re.sub(r'\n{3,}', '\n\n', data["panel_text"]).strip()
+                lines.append(text)
+                has_data = True
+
+            if data.get("flights_url"):
+                lines.append(f"\nView all flights: {data['flights_url']}")
+
+            if not has_data and not data.get("flights_url"):
+                lines.append(f"No flight data found. Try searching directly:")
+                lines.append(f"https://www.google.com/travel/flights")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            return f"Flight search failed: {e}"
+
+        finally:
+            await browser.close()
+
+
+@mcp.tool()
+async def google_flights(
+    origin: str, destination: str, date: str = "", return_date: str = ""
+) -> str:
+    """Search Google Flights for flight options, prices, and travel times.
+
+    Sample prompts that trigger this tool:
+        - "Find flights from New York to London"
+        - "Search for cheap flights from LA to Tokyo"
+        - "Flights from San Francisco to Paris on March 15"
+        - "Find round trip flights from Chicago to Miami"
+        - "How much are flights from Dubai to Bangkok?"
+
+    Args:
+        origin: Departure city or airport (e.g. "New York", "LAX", "London").
+        destination: Arrival city or airport (e.g. "Tokyo", "SFO", "Paris").
+        date: Departure date (optional, e.g. "March 15", "2025-03-15").
+        return_date: Return date for round trips (optional).
+    """
+    return await _do_google_flights(origin, destination, date or "", return_date or "")
+
+
+# ---------------------------------------------------------------------------
+# google_hotels
+# ---------------------------------------------------------------------------
+
+async def _do_google_hotels(query: str, num_results: int = 5) -> str:
+    """Search Google for hotel information."""
+    encoded_query = quote_plus(f"hotels {query}")
+    url = f"https://www.google.com/search?q={encoded_query}&hl=en"
+
+    async with async_playwright() as pw:
+        browser, context = await _launch_browser(pw)
+        page = await context.new_page()
+
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await _dismiss_consent(page)
+            await page.wait_for_timeout(3000)
+
+            data = await page.evaluate(
+                """
+                (numResults) => {
+                    const data = { hotels: [] };
+
+                    // Hotel cards in search results
+                    const hotelCards = document.querySelectorAll(
+                        '.BTPx6e, ' +
+                        '[data-attrid*="hotel"] .kp-blk, ' +
+                        '.X7NTVe, ' +
+                        '.ntKMYc'
+                    );
+
+                    for (const card of hotelCards) {
+                        if (data.hotels.length >= numResults) break;
+
+                        const nameEl = card.querySelector('.BTPx6e .rOVRL, h3, .GgpMEf, [data-hotel-id] .QrShPb');
+                        const priceEl = card.querySelector('.kixHKb, .qeiSWe, .priceText, .hVE8ee');
+                        const ratingEl = card.querySelector('.KFi5wf, .MW4etd, .yi40Hd');
+                        const reviewsEl = card.querySelector('.jdzyld, .RDApEe');
+                        const linkEl = card.querySelector('a[href]');
+
+                        const name = nameEl ? nameEl.innerText.trim() : '';
+                        if (!name) continue;
+
+                        data.hotels.push({
+                            name: name,
+                            price: priceEl ? priceEl.innerText.trim() : '',
+                            rating: ratingEl ? ratingEl.innerText.trim() : '',
+                            reviews: reviewsEl ? reviewsEl.innerText.trim().replace(/[()]/g, '') : '',
+                            url: linkEl ? linkEl.href : '',
+                        });
+                    }
+
+                    // Fallback: get the hotel widget text
+                    if (data.hotels.length === 0) {
+                        const widget = document.querySelector(
+                            '[data-attrid*="hotel"], .kp-wholepage, .liYKde'
+                        );
+                        if (widget) {
+                            const text = widget.innerText.substring(0, 3000);
+                            if (text.toLowerCase().includes('hotel') || text.includes('$') || text.includes('/night')) {
+                                data.widget_text = text;
+                            }
+                        }
+                    }
+
+                    // "View all hotels" link
+                    const viewAll = document.querySelector('a[href*="google.com/travel/hotels"]');
+                    data.hotels_url = viewAll ? viewAll.href : '';
+
+                    return data;
+                }
+                """,
+                num_results,
+            )
+
+            lines = [f"Google Hotels: {query}\n"]
+            has_data = False
+
+            if data.get("hotels"):
+                for i, h in enumerate(data["hotels"][:num_results], 1):
+                    lines.append(f"{i}. {h['name']}")
+                    if h.get("price"):
+                        lines.append(f"   Price: {h['price']}")
+                    if h.get("rating"):
+                        rating_str = f"   Rating: {h['rating']}"
+                        if h.get("reviews"):
+                            rating_str += f" ({h['reviews']} reviews)"
+                        lines.append(rating_str)
+                    if h.get("url"):
+                        lines.append(f"   URL: {h['url']}")
+                    lines.append("")
+                has_data = True
+
+            if data.get("widget_text") and not has_data:
+                text = re.sub(r'\n{3,}', '\n\n', data["widget_text"]).strip()
+                lines.append(text)
+                has_data = True
+
+            if data.get("hotels_url"):
+                lines.append(f"\nView all hotels: {data['hotels_url']}")
+
+            if not has_data and not data.get("hotels_url"):
+                lines.append("No hotel data found. Try searching directly:")
+                lines.append("https://www.google.com/travel/hotels")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            return f"Hotel search failed: {e}"
+
+        finally:
+            await browser.close()
+
+
+@mcp.tool()
+async def google_hotels(query: str, num_results: int = 5) -> str:
+    """Search for hotels and accommodation with prices and ratings.
+
+    Sample prompts that trigger this tool:
+        - "Find hotels in Paris for next weekend"
+        - "Search for cheap hotels in Tokyo"
+        - "Best hotels near Times Square New York"
+        - "Find 5-star hotels in Dubai"
+        - "Hotels in London under $200 per night"
+
+    Args:
+        query: Hotel search query with location (e.g. "Paris", "Tokyo near Shibuya", "New York March 15-20").
+        num_results: Number of results to return (default 5, max 10).
+    """
+    num_results = max(1, min(num_results, 10))
+    return await _do_google_hotels(query, num_results)
 
 
 # ---------------------------------------------------------------------------
