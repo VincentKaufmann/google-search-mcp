@@ -10,9 +10,11 @@ Tools provided:
     - google_scholar: Search Google Scholar for academic papers
     - google_images: Search Google Images for image URLs
     - google_trends: Check Google Trends for topic interest over time
+    - google_suggest: Get Google autocomplete suggestions for a query
     - visit_page: Fetch a URL and return its text content
 """
 
+import json
 import re
 from urllib.parse import quote_plus
 
@@ -204,11 +206,20 @@ async def google_search(
 ) -> str:
     """Search Google and return results with titles, URLs, and snippets.
 
+    Sample prompts that trigger this tool:
+        - "Search for the best Python web frameworks"
+        - "Find Reddit discussions about home lab setups from the past week"
+        - "Search Stack Overflow for async Python examples"
+        - "Look up recent news about SpaceX in German"
+        - "Get page 2 of results for machine learning tutorials"
+        - "Search Hacker News for posts about Rust programming"
+        - "Find Japanese results about Tokyo restaurants"
+
     Args:
         query: The search query string.
         num_results: Number of results to return (default 5, max 10).
         time_range: Filter by time. One of: "past_hour", "past_day", "past_week", "past_month", "past_year". Leave empty for no filter.
-        site: Limit results to a specific domain (e.g. "reddit.com", "stackoverflow.com", "github.com", "arxiv.org"). Leave empty for all sites.
+        site: Limit results to a specific domain (e.g. "reddit.com", "stackoverflow.com", "github.com", "arxiv.org", "news.ycombinator.com"). Leave empty for all sites.
         page: Results page number (default 1). Use 2, 3, etc. to get more results.
         language: Language code for results (e.g. "en", "de", "fr", "es", "ja", "zh"). Leave empty for English.
         region: Country/region code (e.g. "us", "gb", "de", "fr", "jp"). Leave empty for default.
@@ -317,6 +328,13 @@ async def _do_google_news(query: str, num_results: int = 5) -> str:
 async def google_news(query: str, num_results: int = 5) -> str:
     """Search Google News for recent headlines and articles.
 
+    Sample prompts that trigger this tool:
+        - "What are the latest AI news?"
+        - "Get me today's top headlines"
+        - "Any recent news about the stock market?"
+        - "What happened in the US election?"
+        - "Latest news about climate change"
+
     Args:
         query: The news search query string.
         num_results: Number of results to return (default 5, max 10).
@@ -410,6 +428,13 @@ async def _do_google_scholar(query: str, num_results: int = 5) -> str:
 @mcp.tool()
 async def google_scholar(query: str, num_results: int = 5) -> str:
     """Search Google Scholar for academic papers, citations, and research.
+
+    Sample prompts that trigger this tool:
+        - "Find me papers on transformer attention mechanisms"
+        - "Look up academic research about quantum computing"
+        - "Search for citations on CRISPR gene editing"
+        - "Find recent studies about large language models"
+        - "What does the research say about intermittent fasting?"
 
     Args:
         query: The academic search query string.
@@ -513,6 +538,12 @@ async def _do_google_images(query: str, num_results: int = 5) -> str:
 @mcp.tool()
 async def google_images(query: str, num_results: int = 5) -> str:
     """Search Google Images and return image URLs with descriptions.
+
+    Sample prompts that trigger this tool:
+        - "Show me images of the Northern Lights"
+        - "Find pictures of modern kitchen designs"
+        - "Search for diagrams of neural network architecture"
+        - "Find images of the Mars rover"
 
     Args:
         query: The image search query string.
@@ -631,10 +662,111 @@ async def _do_google_trends(query: str) -> str:
 async def google_trends(query: str) -> str:
     """Check Google Trends for a topic to see interest over time, related topics, and related queries.
 
+    Sample prompts that trigger this tool:
+        - "What's trending in tech right now?"
+        - "Is Python more popular than JavaScript?"
+        - "Check the trend for electric vehicles"
+        - "What are people searching for about AI?"
+
     Args:
         query: The topic or search term to check trends for.
     """
     return await _do_google_trends(query)
+
+
+# ---------------------------------------------------------------------------
+# google_suggest
+# ---------------------------------------------------------------------------
+
+async def _do_google_suggest(query: str) -> str:
+    """Fetch Google autocomplete suggestions by triggering Google's search box."""
+    encoded_query = quote_plus(query)
+
+    async with async_playwright() as pw:
+        browser, context = await _launch_browser(pw)
+        page = await context.new_page()
+
+        try:
+            # Go to Google and type in the search box to trigger autocomplete
+            await page.goto("https://www.google.com/?hl=en", wait_until="domcontentloaded", timeout=30000)
+            await _dismiss_consent(page)
+
+            # Find the search input and type the query
+            search_input = page.locator('textarea[name="q"], input[name="q"]')
+            await search_input.click()
+            await search_input.fill(query)
+            await page.wait_for_timeout(1500)
+
+            # Extract autocomplete suggestions
+            suggestions = await page.evaluate(
+                """
+                () => {
+                    const suggestions = [];
+                    // Google autocomplete suggestions appear in various containers
+                    const items = document.querySelectorAll(
+                        'ul[role="listbox"] li .wM6W7d, '
+                        + 'ul[role="listbox"] li .sbl1, '
+                        + 'ul[role="listbox"] li .G43f7e, '
+                        + 'ul[role="listbox"] li span b, '
+                        + '.aajZCb .sbct .sbl1, '
+                        + '.erkvQe li .wM6W7d, '
+                        + '.UUbT9 .aajZCb .sbl1'
+                    );
+                    for (const el of items) {
+                        const text = el.closest('li')?.innerText?.trim() || el.innerText?.trim();
+                        if (text && !suggestions.includes(text)) {
+                            suggestions.push(text);
+                        }
+                    }
+
+                    // Fallback: grab all listbox items
+                    if (suggestions.length === 0) {
+                        const listItems = document.querySelectorAll('ul[role="listbox"] li');
+                        for (const li of listItems) {
+                            const text = li.innerText?.trim();
+                            if (text && text.length > 1 && !suggestions.includes(text)) {
+                                suggestions.push(text);
+                            }
+                        }
+                    }
+
+                    return suggestions;
+                }
+                """
+            )
+
+            if not suggestions:
+                return f"No suggestions found for: {query}"
+
+            lines = [f"Google Suggestions for: {query}\n"]
+            for i, s in enumerate(suggestions[:10], 1):
+                lines.append(f"  {i}. {s}")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            return f"Suggestions lookup failed: {e}"
+
+        finally:
+            await browser.close()
+
+
+@mcp.tool()
+async def google_suggest(query: str) -> str:
+    """Get Google autocomplete suggestions for a query. Only use this when the user explicitly asks for search suggestions, related searches, or wants to explore what people commonly search for. Do NOT use this for regular searches — use google_search instead.
+
+    Sample prompts that trigger this tool (user must explicitly ask for suggestions):
+        - "What do people commonly search for about Python?"
+        - "Give me search suggestions for machine learning"
+        - "What are popular searches related to home automation?"
+        - "Help me brainstorm better search terms for climate data"
+
+    Do NOT use this tool when the user simply wants search results. Use google_search for that.
+
+    Args:
+        query: The partial or full query to get suggestions for.
+    """
+    return await _do_google_suggest(query)
 
 
 # ---------------------------------------------------------------------------
@@ -692,6 +824,12 @@ async def _fetch_page_text(url: str) -> str:
 @mcp.tool()
 async def visit_page(url: str) -> str:
     """Fetch a web page and return its text content. Use this after google_search to read the actual content of a result.
+
+    Sample prompts that trigger this tool:
+        - "Read this article for me: https://example.com/article"
+        - "What does this page say? https://..."
+        - "Summarize the content at this URL"
+        - "Go to this link and tell me what it says"
 
     Args:
         url: The full URL to visit and extract text from.
