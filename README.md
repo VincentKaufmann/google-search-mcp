@@ -28,9 +28,23 @@ Works with LM Studio, Claude Desktop, and any MCP-compatible client.
 
 ## Installation
 
+### Quick Install (pipx — recommended)
+
 ```bash
-pip install noapi-google-search-mcp
+pipx install noapi-google-search-mcp
 playwright install chromium
+```
+
+This puts `noapi-google-search-mcp` on your PATH so you can use it directly.
+
+### Install in a Virtual Environment
+
+If you don't have pipx, install in a dedicated venv:
+
+```bash
+python3 -m venv ~/.local/share/noapi-google-search-mcp
+~/.local/share/noapi-google-search-mcp/bin/pip install noapi-google-search-mcp
+~/.local/share/noapi-google-search-mcp/bin/playwright install chromium
 ```
 
 ## Usage
@@ -38,6 +52,8 @@ playwright install chromium
 ### LM Studio
 
 Add to `~/.lmstudio/mcp.json`:
+
+**If installed with pipx** (command is on PATH):
 
 ```json
 {
@@ -52,9 +68,24 @@ Add to `~/.lmstudio/mcp.json`:
 }
 ```
 
+**If installed in a venv** (use the full path):
+
+```json
+{
+  "mcpServers": {
+    "google-search": {
+      "command": "~/.local/share/noapi-google-search-mcp/bin/noapi-google-search-mcp",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
+```
+
 ### Claude Desktop
 
-Add to your Claude Desktop config:
+Add to your Claude Desktop config (`claude_desktop_config.json`):
 
 ```json
 {
@@ -65,6 +96,8 @@ Add to your Claude Desktop config:
   }
 }
 ```
+
+> If installed in a venv, use the full path to the binary instead.
 
 ### As a CLI
 
