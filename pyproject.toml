@@ -3,16 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "google-search-mcp"
+name = "noapi-google-search-mcp"
 version = "0.1.0"
-description = "MCP server for Google search and page fetching using headless Chromium"
+description = "Google Search for Local LLMs — No API Key Required. MCP server using headless Chromium via Playwright."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Vincent Kaufmann", email = "vincent@kaufmann.dev" },
 ]
-keywords = ["mcp", "google", "search", "playwright", "llm", "ai"]
+keywords = ["mcp", "google", "search", "playwright", "llm", "ai", "local-llm", "no-api", "chromium", "lm-studio"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -30,7 +30,10 @@ dependencies = [
 ]
 
 [project.scripts]
-google-search-mcp = "google_search_mcp:main"
+noapi-google-search-mcp = "google_search_mcp:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/google_search_mcp"]
 
 [project.urls]
 Homepage = "https://github.com/VincentKaufmann/google-search-mcp"
