@@ -91,6 +91,17 @@ Check Google Trends for topic interest, related topics, and related queries.
 
 ---
 
+### `google_suggest` — Search Suggestions
+
+Get Google autocomplete suggestions for a query. Useful for brainstorming search terms and exploring what people commonly search for.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `query` | Query to get suggestions for (required) | `"machine learning"` |
+
+---
+
 ### `visit_page` — Page Fetcher
 
 Fetch any URL and extract readable text content. Use after search to read full articles.
@@ -102,16 +113,62 @@ Fetch any URL and extract readable text content. Use after search to read full a
 
 ## How Does the LLM Know About These Tools?
 
-You don't need to teach the LLM anything. MCP automatically exposes all tool names, descriptions, and parameters to the model. When you ask a question like:
+You don't need to teach the LLM anything. MCP automatically exposes all tool names, descriptions, and parameters to the model. The LLM picks the right tool and parameters automatically based on your request.
 
-- *"What are the latest AI news?"* → LLM calls `google_news`
-- *"Find me papers on quantum computing"* → LLM calls `google_scholar`
-- *"Search Reddit for home lab setups"* → LLM calls `google_search` with `site="reddit.com"`
-- *"What's trending in tech?"* → LLM calls `google_trends`
-- *"Show me images of the Northern Lights"* → LLM calls `google_images`
-- *"Read this article for me: https://..."* → LLM calls `visit_page`
+## Sample Prompts
 
-The LLM picks the right tool and parameters automatically based on your request.
+Here are example prompts you can type into LM Studio or Claude Desktop, and which tool the LLM will use:
+
+### Web Search
+| What you type | Tool called | Parameters used |
+|--------------|-------------|-----------------|
+| *"Search for the best Python web frameworks"* | `google_search` | `query` |
+| *"Find Reddit discussions about home lab setups"* | `google_search` | `query` + `site="reddit.com"` |
+| *"Search Stack Overflow for async Python examples"* | `google_search` | `query` + `site="stackoverflow.com"` |
+| *"What's new in AI this week?"* | `google_search` | `query` + `time_range="past_week"` |
+| *"Search Hacker News for posts about Rust"* | `google_search` | `query` + `site="news.ycombinator.com"` |
+| *"Find GitHub repos for MCP servers"* | `google_search` | `query` + `site="github.com"` |
+| *"Get page 2 of results for machine learning tutorials"* | `google_search` | `query` + `page=2` |
+| *"Search for restaurants in Tokyo in Japanese"* | `google_search` | `query` + `language="ja"` + `region="jp"` |
+| *"Find German news about the EU from the past month"* | `google_search` | `query` + `language="de"` + `time_range="past_month"` |
+
+### News
+| What you type | Tool called |
+|--------------|-------------|
+| *"What are today's top headlines?"* | `google_news` |
+| *"Any recent news about the stock market?"* | `google_news` |
+| *"What happened in the Japan election?"* | `google_news` |
+
+### Academic Research
+| What you type | Tool called |
+|--------------|-------------|
+| *"Find papers on transformer attention mechanisms"* | `google_scholar` |
+| *"Look up academic research about CRISPR"* | `google_scholar` |
+| *"What does the research say about intermittent fasting?"* | `google_scholar` |
+
+### Images
+| What you type | Tool called |
+|--------------|-------------|
+| *"Show me images of the Northern Lights"* | `google_images` |
+| *"Find diagrams of neural network architecture"* | `google_images` |
+
+### Trends
+| What you type | Tool called |
+|--------------|-------------|
+| *"What's trending in tech right now?"* | `google_trends` |
+| *"Is Python more popular than JavaScript?"* | `google_trends` |
+
+### Suggestions
+| What you type | Tool called |
+|--------------|-------------|
+| *"What do people commonly search for about Python?"* | `google_suggest` |
+| *"Help me brainstorm better search terms for climate data"* | `google_suggest` |
+
+### Page Reading
+| What you type | Tool called |
+|--------------|-------------|
+| *"Read this article for me: https://..."* | `visit_page` |
+| *"What does this page say? https://..."* | `visit_page` |
 
 ## Installation
 
