@@ -298,6 +298,20 @@ Language: en (confidence: 98%)
 
 ---
 
+### `search_transcript` - Transcript Search
+
+Search a previously transcribed video for segments matching a keyword or phrase. Returns matching segments with timestamps and surrounding context, ready for clip extraction.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `url` | Same video URL used with transcribe_video (required) | `"https://youtube.com/watch?v=..."` |
+| `query` | Keyword or phrase to search for (required) | `"memory bandwidth"` |
+| `model_size` | Must match transcription model (default: tiny) | `"tiny"` |
+| `context_segments` | Surrounding segments to include (default: 2) | `3` |
+
+---
+
 ### `extract_video_clip` - Video Clip Extraction by Topic
 
 Extract video clips by topic. After transcription, just ask "extract the part about X" and the LLM reads the transcript, finds the right timestamps, and cuts the clip automatically. A buffer is added before and after to avoid cutting off content. Clips are saved to `~/clips/`.

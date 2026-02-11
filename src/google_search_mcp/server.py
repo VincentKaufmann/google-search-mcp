@@ -22,7 +22,8 @@ Tools provided:
     - google_lens_detect: Detect objects in image and identify each via Lens
     - ocr_image: Extract text from images locally using RapidOCR (no internet needed)
     - transcribe_video: Download and transcribe YouTube videos with timestamps
-    - extract_video_clip: Extract a segment from a video by timestamps
+    - search_transcript: Search a transcribed video for topics by keyword
+    - extract_video_clip: Extract a video clip by topic
     - list_images: List image files in a directory for use with google_lens
     - visit_page: Fetch a URL and return its text content
 """
@@ -2735,8 +2736,8 @@ async def transcribe_video(
         if ctx:
             await ctx.report_progress(progress=100, total=100, message="Done!")
 
-        # Format output
-        lines = [
+        # Format full transcript (always stored in cache)
+        full_lines = [
             f"Video Transcript",
             f"Title: {title}",
             f"Channel: {uploader}",
@@ -2750,22 +2751,63 @@ async def transcribe_video(
         for seg in segments:
             start = _format_timestamp(seg["start"])
             end = _format_timestamp(seg["end"])
-            lines.append(f"[{start} - {end}] {seg['text']}")
+            full_lines.append(f"[{start} - {end}] {seg['text']}")
 
-        lines.append("")
-        lines.append("--- End of Transcript ---")
-        lines.append(f"Total segments: {len(segments)}")
+        full_lines.append("")
+        full_lines.append("--- End of Transcript ---")
+        full_lines.append(f"Total segments: {len(segments)}")
 
-        result = "\n".join(lines)
+        full_transcript = "\n".join(full_lines)
 
-        # Cache to disk
+        # Cache to disk (save both formatted text and raw segments for search)
         try:
             with open(cache_path, "w") as f:
-                json.dump({"url": url, "transcript": result}, f)
+                json.dump({
+                    "url": url,
+                    "title": title,
+                    "transcript": full_transcript,
+                    "segments": segments,
+                }, f)
         except Exception:
             pass
 
-        return result
+        # For long videos (>10 min), return condensed version to avoid
+        # overwhelming the model. Full transcript is always in the cache.
+        if duration > 600 and len(segments) > 50:
+            preview_count = 15
+            preview_lines = [
+                f"Video Transcript (condensed - {len(segments)} segments total)",
+                f"Title: {title}",
+                f"Channel: {uploader}",
+                f"Duration: {_format_timestamp(duration)}",
+                f"Language: {whisper_result['language']} (confidence: {whisper_result['language_probability']:.0%})",
+                f"URL: {url}",
+                f"",
+                f"--- First {preview_count} segments ---",
+            ]
+            for seg in segments[:preview_count]:
+                preview_lines.append(
+                    f"[{_format_timestamp(seg['start'])} - "
+                    f"{_format_timestamp(seg['end'])}] {seg['text']}"
+                )
+            preview_lines.append(f"")
+            preview_lines.append(f"... ({len(segments) - preview_count * 2} more segments) ...")
+            preview_lines.append(f"")
+            preview_lines.append(f"--- Last {preview_count} segments ---")
+            for seg in segments[-preview_count:]:
+                preview_lines.append(
+                    f"[{_format_timestamp(seg['start'])} - "
+                    f"{_format_timestamp(seg['end'])}] {seg['text']}"
+                )
+            preview_lines.append("")
+            preview_lines.append(
+                "IMPORTANT: This is a long video. To find specific topics, "
+                "call search_transcript with url and a keyword query. "
+                "To extract a clip, call extract_video_clip with the timestamps."
+            )
+            return "\n".join(preview_lines)
+
+        return full_transcript
 
     except Exception as e:
         return f"Transcription failed: {e}"
@@ -2778,10 +2820,220 @@ async def transcribe_video(
 
 
 # ---------------------------------------------------------------------------
-# extract_video_clip (cut a segment from a video by timestamps)
+# search_transcript (find segments by keyword in a cached transcript)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def search_transcript(
+    url: str,
+    query: str,
+    model_size: str = "tiny",
+    context_segments: int = 2,
+) -> str:
+    """Search a previously transcribed video for segments matching a keyword or phrase.
+
+    Use this after transcribe_video to find specific topics and their timestamps.
+    Returns matching segments with surrounding context so the LLM can determine
+    the exact start and end timestamps for a topic, then call extract_video_clip.
+
+    Sample prompts that trigger this tool:
+        - "Find where they talk about memory bandwidth in the video"
+        - "What timestamp do they discuss pricing?"
+        - "When do they mention the DGX Spark specs?"
+
+    Args:
+        url: The same video URL used with transcribe_video.
+        query: Keyword or phrase to search for (case-insensitive).
+        model_size: Must match the model_size used for transcription (default: tiny).
+        context_segments: Number of surrounding segments to include (default: 2).
+    """
+    cache_path = _transcript_cache_path(url, model_size)
+    if not os.path.isfile(cache_path):
+        return (
+            f"No cached transcript found for this URL. "
+            f"Call transcribe_video first with url=\"{url}\"."
+        )
+
+    try:
+        with open(cache_path) as f:
+            data = json.load(f)
+    except Exception:
+        return "Failed to read cached transcript."
+
+    segments = data.get("segments", [])
+    title = data.get("title", "Unknown")
+    if not segments:
+        return "Transcript has no segments."
+
+    query_lower = query.lower()
+
+    # Find matching segment indices
+    matches = []
+    for i, seg in enumerate(segments):
+        if query_lower in seg["text"].lower():
+            matches.append(i)
+
+    if not matches:
+        return f"No segments found matching \"{query}\" in: {title}"
+
+    # Group nearby matches into ranges with context
+    ranges = []
+    for idx in matches:
+        start_idx = max(0, idx - context_segments)
+        end_idx = min(len(segments) - 1, idx + context_segments)
+        if ranges and start_idx <= ranges[-1][1] + 1:
+            ranges[-1] = (ranges[-1][0], end_idx)
+        else:
+            ranges.append((start_idx, end_idx))
+
+    # Format results
+    lines = [
+        f"Search results for \"{query}\" in: {title}",
+        f"Matches found: {len(matches)} segments in {len(ranges)} section(s)",
+        f"URL: {url}",
+        "",
+    ]
+
+    for r_idx, (start_idx, end_idx) in enumerate(ranges):
+        section_start = segments[start_idx]["start"]
+        section_end = segments[end_idx]["end"]
+        lines.append(
+            f"--- Section {r_idx + 1}: "
+            f"{_format_timestamp(section_start)} - {_format_timestamp(section_end)} "
+            f"(start_seconds={section_start:.1f}, end_seconds={section_end:.1f}) ---"
+        )
+        for i in range(start_idx, end_idx + 1):
+            seg = segments[i]
+            marker = " >>>" if i in matches else "    "
+            lines.append(
+                f"{marker} [{_format_timestamp(seg['start'])} - "
+                f"{_format_timestamp(seg['end'])}] {seg['text']}"
+            )
+        lines.append("")
+
+    lines.append(
+        "To extract a clip, call extract_video_clip with the "
+        "start_seconds and end_seconds shown above."
+    )
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# extract_video_clip (cut a segment from a video by topic)
 # ---------------------------------------------------------------------------
 
 CLIPS_DIR = os.path.join(os.path.expanduser("~"), "clips")
+
+
+VIDEO_CACHE_DIR = os.path.join(TRANSCRIBE_CACHE_DIR, "videos")
+
+
+def _video_cache_path(url: str) -> str:
+    """Get cached video path for a URL."""
+    key = hashlib.md5(url.encode()).hexdigest()
+    return os.path.join(VIDEO_CACHE_DIR, f"{key}.mp4")
+
+
+def _download_video(url: str) -> dict:
+    """Download video from URL (runs in thread). Returns info dict. Caches to disk."""
+    import yt_dlp
+
+    os.makedirs(VIDEO_CACHE_DIR, exist_ok=True)
+    cached = _video_cache_path(url)
+
+    # Check if already cached
+    if os.path.isfile(cached) and os.path.getsize(cached) > 0:
+        # Get title from yt-dlp without downloading
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+        return {"title": info.get("title", "clip"), "video_path": cached}
+
+    ydl_opts = {
+        "format": "best[ext=mp4][height<=480]/best[ext=mp4]/best",
+        "outtmpl": cached,
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+
+    if not os.path.isfile(cached):
+        raise FileNotFoundError("Failed to download video.")
+
+    return {"title": info.get("title", "clip"), "video_path": cached}
+
+
+def _extract_clip_pyav(
+    video_path: str, out_path: str,
+    clip_start: float, clip_end: float,
+) -> dict:
+    """Extract clip using PyAV (runs in thread). Returns clip info."""
+    import av
+
+    inp = av.open(video_path)
+
+    video_stream = inp.streams.video[0] if inp.streams.video else None
+    audio_stream = inp.streams.audio[0] if inp.streams.audio else None
+
+    if not video_stream and not audio_stream:
+        inp.close()
+        raise ValueError("No video or audio streams found.")
+
+    total_duration = float(inp.duration / av.time_base) if inp.duration else 0
+    if total_duration and clip_end > total_duration:
+        clip_end = total_duration
+
+    out = av.open(out_path, 'w')
+
+    o_vs = None
+    if video_stream:
+        o_vs = out.add_stream('libx264', rate=video_stream.average_rate)
+        o_vs.width = video_stream.codec_context.width
+        o_vs.height = video_stream.codec_context.height
+        o_vs.pix_fmt = video_stream.codec_context.pix_fmt or 'yuv420p'
+
+    o_as = None
+    if audio_stream:
+        o_as = out.add_stream('aac', rate=audio_stream.codec_context.sample_rate)
+        o_as.layout = audio_stream.codec_context.layout
+
+    if o_vs and video_stream:
+        inp.seek(int(clip_start * av.time_base), any_frame=False)
+        for frame in inp.decode(video=0):
+            ts = float(frame.time) if frame.time is not None else 0
+            if ts < clip_start:
+                continue
+            if ts > clip_end:
+                break
+            for packet in o_vs.encode(frame):
+                out.mux(packet)
+        for packet in o_vs.encode():
+            out.mux(packet)
+
+    if o_as and audio_stream:
+        inp.seek(int(clip_start * av.time_base), any_frame=False)
+        for frame in inp.decode(audio=0):
+            ts = float(frame.time) if frame.time is not None else 0
+            if ts < clip_start:
+                continue
+            if ts > clip_end:
+                break
+            frame.pts = None
+            for packet in o_as.encode(frame):
+                out.mux(packet)
+        for packet in o_as.encode():
+            out.mux(packet)
+
+    out.close()
+    inp.close()
+
+    return {
+        "size": os.path.getsize(out_path),
+        "clip_end": clip_end,
+    }
 
 
 @mcp.tool()
@@ -2816,61 +3068,38 @@ async def extract_video_clip(
         output_filename: Optional filename for the clip (without extension).
     """
     try:
-        import av
+        import av  # noqa: F401
     except ImportError:
         return "PyAV is required. Install with: pip install av"
 
     os.makedirs(CLIPS_DIR, exist_ok=True)
     os.makedirs(TRANSCRIBE_CACHE_DIR, exist_ok=True)
 
-    # Apply buffer
     clip_start = max(0, start_seconds - buffer_seconds)
     clip_end = end_seconds + buffer_seconds
 
     video_path = None
     title = "clip"
 
-    # Check if URL is a local file
     if os.path.isfile(url):
         video_path = url
         title = Path(url).stem
     else:
-        # Download video with yt-dlp
         try:
-            import yt_dlp
+            import yt_dlp  # noqa: F401
         except ImportError:
             return "yt-dlp is required. Install with: pip install yt-dlp"
 
         if ctx:
             await ctx.report_progress(progress=0, total=100, message="Downloading video...")
 
-        video_dl_path = os.path.join(TRANSCRIBE_CACHE_DIR, "video_temp")
-        ydl_opts = {
-            "format": "best[ext=mp4][height<=1080]/best[ext=mp4]/best",
-            "outtmpl": video_dl_path + ".%(ext)s",
-            "quiet": True,
-            "no_warnings": True,
-        }
-
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                title = info.get("title", "clip")
-                ext = info.get("ext", "mp4")
-                video_path = video_dl_path + "." + ext
+            dl_info = await asyncio.to_thread(_download_video, url)
+            title = dl_info["title"]
+            video_path = dl_info["video_path"]
         except Exception as e:
             return f"Failed to download video: {e}"
 
-        if not video_path or not os.path.isfile(video_path):
-            # Find the downloaded file
-            for f in os.listdir(TRANSCRIBE_CACHE_DIR):
-                if f.startswith("video_temp"):
-                    video_path = os.path.join(TRANSCRIBE_CACHE_DIR, f)
-                    break
-            else:
-                return "Failed to download video."
-
-    # Generate output filename
     safe_title = re.sub(r'[^\w\s-]', '', title)[:50].strip().replace(' ', '_')
     if output_filename:
         safe_title = re.sub(r'[^\w\s-]', '', output_filename)[:50].strip().replace(' ', '_')
@@ -2880,72 +3109,16 @@ async def extract_video_clip(
     out_name = f"{safe_title}_{start_str}_to_{end_str}.mp4"
     out_path = os.path.join(CLIPS_DIR, out_name)
 
+    if ctx:
+        await ctx.report_progress(progress=40, total=100, message="Extracting clip...")
+
     try:
-        inp = av.open(video_path)
+        clip_info = await asyncio.to_thread(
+            _extract_clip_pyav, video_path, out_path, clip_start, clip_end
+        )
 
-        # Get streams
-        video_stream = inp.streams.video[0] if inp.streams.video else None
-        audio_stream = inp.streams.audio[0] if inp.streams.audio else None
-
-        if not video_stream and not audio_stream:
-            inp.close()
-            return "No video or audio streams found in the file."
-
-        total_duration = float(inp.duration / av.time_base) if inp.duration else 0
-        if total_duration and clip_end > total_duration:
-            clip_end = total_duration
-
-        if ctx:
-            await ctx.report_progress(progress=40, total=100, message="Extracting clip...")
-
-        out = av.open(out_path, 'w')
-
-        # Create output streams
-        o_vs = None
-        if video_stream:
-            o_vs = out.add_stream('libx264', rate=video_stream.average_rate)
-            o_vs.width = video_stream.codec_context.width
-            o_vs.height = video_stream.codec_context.height
-            o_vs.pix_fmt = video_stream.codec_context.pix_fmt or 'yuv420p'
-
-        o_as = None
-        if audio_stream:
-            o_as = out.add_stream('aac', rate=audio_stream.codec_context.sample_rate)
-            o_as.layout = audio_stream.codec_context.layout
-
-        # Extract video frames
-        if o_vs and video_stream:
-            inp.seek(int(clip_start * av.time_base), any_frame=False)
-            for frame in inp.decode(video=0):
-                ts = float(frame.time) if frame.time is not None else 0
-                if ts < clip_start:
-                    continue
-                if ts > clip_end:
-                    break
-                for packet in o_vs.encode(frame):
-                    out.mux(packet)
-            for packet in o_vs.encode():
-                out.mux(packet)
-
-        # Extract audio frames
-        if o_as and audio_stream:
-            inp.seek(int(clip_start * av.time_base), any_frame=False)
-            for frame in inp.decode(audio=0):
-                ts = float(frame.time) if frame.time is not None else 0
-                if ts < clip_start:
-                    continue
-                if ts > clip_end:
-                    break
-                frame.pts = None
-                for packet in o_as.encode(frame):
-                    out.mux(packet)
-            for packet in o_as.encode():
-                out.mux(packet)
-
-        out.close()
-        inp.close()
-
-        clip_size = os.path.getsize(out_path)
+        clip_end = clip_info["clip_end"]
+        clip_size = clip_info["size"]
         clip_dur = clip_end - clip_start
 
         result = [
@@ -2962,15 +3135,6 @@ async def extract_video_clip(
 
     except Exception as e:
         return f"Failed to extract clip: {e}"
-
-    finally:
-        # Clean up downloaded video (keep clips)
-        if not os.path.isfile(url):
-            try:
-                if video_path and os.path.isfile(video_path):
-                    os.remove(video_path)
-            except OSError:
-                pass
 
 
 # ---------------------------------------------------------------------------
