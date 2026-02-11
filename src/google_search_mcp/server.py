@@ -27,13 +27,16 @@ Tools provided:
     - visit_page: Fetch a URL and return its text content
 """
 
+import asyncio
+import hashlib
+import json
 import os
 import re
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote_plus
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from playwright.async_api import async_playwright
 
 mcp = FastMCP("google-search")
@@ -2546,6 +2549,7 @@ async def ocr_image(image_source: str) -> str:
 # ---------------------------------------------------------------------------
 
 TRANSCRIBE_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "noapi-google-search-mcp")
+TRANSCRIPT_CACHE_DIR = os.path.join(TRANSCRIBE_CACHE_DIR, "transcripts")
 
 
 def _format_timestamp(seconds: float) -> str:
@@ -2558,11 +2562,90 @@ def _format_timestamp(seconds: float) -> str:
     return f"{m}:{s:02d}"
 
 
+def _transcript_cache_path(url: str, model_size: str) -> str:
+    """Get disk cache path for a transcript."""
+    key = hashlib.md5(f"{url}|{model_size}".encode()).hexdigest()
+    return os.path.join(TRANSCRIPT_CACHE_DIR, f"{key}.json")
+
+
+def _download_audio(url: str, cache_dir: str) -> dict:
+    """Download audio from URL (runs in thread). Returns info dict."""
+    import yt_dlp
+
+    audio_path = os.path.join(cache_dir, "audio_temp")
+    # Clean up leftover files
+    for f in os.listdir(cache_dir):
+        if f.startswith("audio_temp"):
+            try:
+                os.remove(os.path.join(cache_dir, f))
+            except OSError:
+                pass
+
+    ydl_opts = {
+        "format": "bestaudio[ext=m4a]/bestaudio",
+        "outtmpl": audio_path + ".%(ext)s",
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+
+    title = info.get("title", "Unknown")
+    duration = info.get("duration", 0)
+    uploader = info.get("uploader", "Unknown")
+    ext = info.get("ext", "m4a")
+    actual_path = audio_path + "." + ext
+
+    if not os.path.isfile(actual_path):
+        for f in os.listdir(cache_dir):
+            if f.startswith("audio_temp"):
+                actual_path = os.path.join(cache_dir, f)
+                break
+        else:
+            raise FileNotFoundError("Failed to download audio.")
+
+    return {
+        "title": title,
+        "duration": duration,
+        "uploader": uploader,
+        "audio_path": actual_path,
+    }
+
+
+def _transcribe_audio(audio_path: str, model_size: str, language: str) -> dict:
+    """Transcribe audio file (runs in thread). Returns segments + info."""
+    from faster_whisper import WhisperModel
+
+    model = WhisperModel(model_size, device="cpu", compute_type="int8")
+
+    transcribe_opts = {"beam_size": 5}
+    if language:
+        transcribe_opts["language"] = language
+
+    segments_gen, whisper_info = model.transcribe(audio_path, **transcribe_opts)
+
+    segments = []
+    for seg in segments_gen:
+        segments.append({
+            "start": seg.start,
+            "end": seg.end,
+            "text": seg.text.strip(),
+        })
+
+    return {
+        "segments": segments,
+        "language": whisper_info.language,
+        "language_probability": whisper_info.language_probability,
+    }
+
+
 @mcp.tool()
 async def transcribe_video(
     url: str,
-    model_size: str = "base",
+    model_size: str = "tiny",
     language: str = "",
+    ctx: Context = None,
 ) -> str:
     """Download and transcribe a YouTube video (or any video URL) with timestamps.
 
@@ -2570,12 +2653,13 @@ async def transcribe_video(
     full timestamped transcript. The LLM can then answer questions about the
     video content and point to specific timestamps.
 
+    Results are cached to disk so repeat requests for the same video are instant.
+
     Supported model sizes: tiny, base, small, medium, large
-    - tiny: fastest, least accurate (~75MB)
-    - base: good balance of speed and accuracy (~150MB, default)
-    - small: better accuracy, slower (~500MB)
-    - medium: high accuracy, much slower (~1.5GB)
-    - large: best accuracy, slowest (~3GB)
+    - tiny: fastest, good for most videos (~75MB, default)
+    - base: better accuracy, slower (~150MB)
+    - small: high accuracy, much slower (~500MB)
+    - medium/large: best accuracy, very slow (~1.5GB/~3GB)
 
     Models are downloaded automatically on first use.
 
@@ -2588,71 +2672,68 @@ async def transcribe_video(
 
     Args:
         url: YouTube URL or any video URL supported by yt-dlp.
-        model_size: Whisper model size (tiny/base/small/medium/large). Default: base.
+        model_size: Whisper model size (tiny/base/small/medium/large). Default: tiny.
         language: Language code (e.g. "en", "de", "fr"). Auto-detected if empty.
     """
+    # Validate model size
+    valid_sizes = ("tiny", "base", "small", "medium", "large")
+    if model_size not in valid_sizes:
+        model_size = "tiny"
+
+    # Check disk cache first
+    os.makedirs(TRANSCRIPT_CACHE_DIR, exist_ok=True)
+    cache_path = _transcript_cache_path(url, model_size)
+    if os.path.isfile(cache_path):
+        try:
+            with open(cache_path) as f:
+                return json.load(f)["transcript"] + "\n\n(cached result)"
+        except Exception:
+            pass
+
     try:
-        import yt_dlp
+        import yt_dlp  # noqa: F401
     except ImportError:
         return "yt-dlp is required. Install with: pip install yt-dlp"
 
     try:
-        from faster_whisper import WhisperModel
+        from faster_whisper import WhisperModel  # noqa: F401
     except ImportError:
         return "faster-whisper is required. Install with: pip install faster-whisper"
 
-    # Validate model size
-    valid_sizes = ("tiny", "base", "small", "medium", "large")
-    if model_size not in valid_sizes:
-        model_size = "base"
-
-    # Create cache directory
     os.makedirs(TRANSCRIBE_CACHE_DIR, exist_ok=True)
 
-    # Download audio
-    audio_path = os.path.join(TRANSCRIBE_CACHE_DIR, "audio_temp")
-    ydl_opts = {
-        "format": "bestaudio[ext=m4a]/bestaudio",
-        "outtmpl": audio_path + ".%(ext)s",
-        "quiet": True,
-        "no_warnings": True,
-    }
+    # Download audio in a thread so the event loop stays alive
+    if ctx:
+        await ctx.report_progress(progress=0, total=100, message="Downloading audio...")
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            title = info.get("title", "Unknown")
-            duration = info.get("duration", 0)
-            uploader = info.get("uploader", "Unknown")
-            ext = info.get("ext", "m4a")
-            actual_audio_path = audio_path + "." + ext
+        dl_info = await asyncio.to_thread(
+            _download_audio, url, TRANSCRIBE_CACHE_DIR
+        )
     except Exception as e:
         return f"Failed to download video: {e}"
 
-    if not os.path.isfile(actual_audio_path):
-        # Try to find the downloaded file
-        for f in os.listdir(TRANSCRIBE_CACHE_DIR):
-            if f.startswith("audio_temp"):
-                actual_audio_path = os.path.join(TRANSCRIBE_CACHE_DIR, f)
-                break
-        else:
-            return "Failed to download audio from the video."
+    title = dl_info["title"]
+    duration = dl_info["duration"]
+    uploader = dl_info["uploader"]
+    actual_audio_path = dl_info["audio_path"]
 
     try:
-        # Transcribe
-        model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        # Transcribe in a thread so progress notifications can be sent
+        if ctx:
+            await ctx.report_progress(progress=25, total=100, message="Transcribing audio (this may take a minute)...")
 
-        transcribe_opts = {"beam_size": 5}
-        if language:
-            transcribe_opts["language"] = language
+        whisper_result = await asyncio.to_thread(
+            _transcribe_audio, actual_audio_path, model_size, language
+        )
 
-        segments_gen, info = model.transcribe(actual_audio_path, **transcribe_opts)
-
-        # Collect all segments
-        segments = list(segments_gen)
+        segments = whisper_result["segments"]
 
         if not segments:
             return f"No speech detected in: {title}"
+
+        if ctx:
+            await ctx.report_progress(progress=100, total=100, message="Done!")
 
         # Format output
         lines = [
@@ -2660,29 +2741,36 @@ async def transcribe_video(
             f"Title: {title}",
             f"Channel: {uploader}",
             f"Duration: {_format_timestamp(duration)}",
-            f"Language: {info.language} (confidence: {info.language_probability:.0%})",
+            f"Language: {whisper_result['language']} (confidence: {whisper_result['language_probability']:.0%})",
             f"URL: {url}",
             f"",
             f"--- Transcript ---",
         ]
 
         for seg in segments:
-            start = _format_timestamp(seg.start)
-            end = _format_timestamp(seg.end)
-            text = seg.text.strip()
-            lines.append(f"[{start} - {end}] {text}")
+            start = _format_timestamp(seg["start"])
+            end = _format_timestamp(seg["end"])
+            lines.append(f"[{start} - {end}] {seg['text']}")
 
         lines.append("")
         lines.append("--- End of Transcript ---")
         lines.append(f"Total segments: {len(segments)}")
 
-        return "\n".join(lines)
+        result = "\n".join(lines)
+
+        # Cache to disk
+        try:
+            with open(cache_path, "w") as f:
+                json.dump({"url": url, "transcript": result}, f)
+        except Exception:
+            pass
+
+        return result
 
     except Exception as e:
         return f"Transcription failed: {e}"
 
     finally:
-        # Clean up audio file
         try:
             os.remove(actual_audio_path)
         except OSError:
@@ -2703,6 +2791,7 @@ async def extract_video_clip(
     end_seconds: float,
     buffer_seconds: float = 3.0,
     output_filename: str = "",
+    ctx: Context = None,
 ) -> str:
     """Extract a video clip between two timestamps from a YouTube video or local file.
 
@@ -2750,6 +2839,9 @@ async def extract_video_clip(
             import yt_dlp
         except ImportError:
             return "yt-dlp is required. Install with: pip install yt-dlp"
+
+        if ctx:
+            await ctx.report_progress(progress=0, total=100, message="Downloading video...")
 
         video_dl_path = os.path.join(TRANSCRIBE_CACHE_DIR, "video_temp")
         ydl_opts = {
@@ -2801,6 +2893,9 @@ async def extract_video_clip(
         total_duration = float(inp.duration / av.time_base) if inp.duration else 0
         if total_duration and clip_end > total_duration:
             clip_end = total_duration
+
+        if ctx:
+            await ctx.report_progress(progress=40, total=100, message="Extracting clip...")
 
         out = av.open(out_path, 'w')
 
