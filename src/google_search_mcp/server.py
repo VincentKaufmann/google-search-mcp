@@ -18,6 +18,7 @@ Tools provided:
     - google_translate: Translate text between languages
     - google_flights: Search for flights between destinations
     - google_hotels: Search for hotels and accommodation
+    - google_lens: Reverse image search to identify objects, products, brands
     - visit_page: Fetch a URL and return its text content
 """
 
@@ -63,14 +64,22 @@ async def _launch_browser(pw):
 
 
 async def _dismiss_consent(page):
-    """Dismiss Google consent banner if present."""
+    """Dismiss Google consent banner if present (supports multiple languages)."""
     try:
         consent_btn = page.locator(
             "button:has-text('Accept all'), "
             "button:has-text('Accept All'), "
             "button:has-text('I agree'), "
             "button:has-text('Reject all'), "
-            "button:has-text('Reject All')"
+            "button:has-text('Reject All'), "
+            "button:has-text('Alle akzeptieren'), "
+            "button:has-text('Alle ablehnen'), "
+            "button:has-text('Tout accepter'), "
+            "button:has-text('Tout refuser'), "
+            "button:has-text('Aceptar todo'), "
+            "button:has-text('Rechazar todo'), "
+            "button:has-text('Accetta tutto'), "
+            "button:has-text('Rifiuta tutto')"
         )
         if await consent_btn.count() > 0:
             await consent_btn.first.click()
@@ -1775,6 +1784,230 @@ async def google_hotels(query: str, num_results: int = 5) -> str:
     """
     num_results = max(1, min(num_results, 10))
     return await _do_google_hotels(query, num_results)
+
+
+# ---------------------------------------------------------------------------
+# google_lens (reverse image search)
+# ---------------------------------------------------------------------------
+
+async def _do_google_lens(image_url: str) -> str:
+    """Reverse image search using Google Lens."""
+    encoded_url = quote_plus(image_url)
+    url = f"https://lens.google.com/uploadbyurl?url={encoded_url}&hl=en"
+
+    async with async_playwright() as pw:
+        browser, context = await _launch_browser(pw)
+        page = await context.new_page()
+
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            await _dismiss_consent(page)
+            await page.wait_for_timeout(2000)
+
+            # Click "Change to English" if present
+            try:
+                eng_link = page.locator("a:has-text('Change to English'), a:has-text('English')")
+                if await eng_link.count() > 0:
+                    await eng_link.first.click()
+                    await page.wait_for_load_state("domcontentloaded", timeout=10000)
+                    await _dismiss_consent(page)
+            except Exception:
+                pass
+
+            # Lens takes time to process the image
+            await page.wait_for_timeout(4000)
+
+            # Check for error
+            page_text = await page.evaluate("() => document.body.innerText.substring(0, 500)")
+            if "No image at the URL" in page_text or "Something went wrong" in page_text:
+                return f"Google Lens could not access the image at: {image_url}\nThe image URL must be publicly accessible. Try a direct image link (ending in .jpg, .png, etc.)."
+
+            data = await page.evaluate(
+                r"""
+                () => {
+                    const data = {
+                        ai_overview: '',
+                        visual_matches: [],
+                        product_results: [],
+                        exact_matches: []
+                    };
+
+                    // AI Overview - Google's description of the image
+                    const bodyText = document.body.innerText;
+                    const aiIdx = bodyText.indexOf('AI Overview');
+                    if (aiIdx !== -1) {
+                        // Get text after "AI Overview" until next section
+                        const afterAi = bodyText.substring(aiIdx + 11, aiIdx + 1500);
+                        const endMarkers = ['Visual matches', 'Exact matches', 'Products', 'Related links', 'Footer'];
+                        let endIdx = afterAi.length;
+                        for (const marker of endMarkers) {
+                            const idx = afterAi.indexOf(marker);
+                            if (idx !== -1 && idx < endIdx) endIdx = idx;
+                        }
+                        data.ai_overview = afterAi.substring(0, endIdx).trim();
+                        // Clean up
+                        if (data.ai_overview.startsWith('\n')) {
+                            data.ai_overview = data.ai_overview.substring(1).trim();
+                        }
+                        // Remove "Dive deeper in AI Mode" suffix
+                        const diveIdx = data.ai_overview.indexOf('Dive deeper');
+                        if (diveIdx !== -1) {
+                            data.ai_overview = data.ai_overview.substring(0, diveIdx).trim();
+                        }
+                    }
+
+                    // Visual matches section - all the heading DIVs are visual match titles
+                    const allHeadings = document.querySelectorAll('div[role="heading"]');
+                    const skipTexts = new Set([
+                        'Choose what you\'re giving feedback on',
+                        'Customised date range',
+                        'Search Results',
+                        'Filters and topics'
+                    ]);
+                    for (const h of allHeadings) {
+                        if (data.visual_matches.length >= 10) break;
+                        const text = h.innerText.trim();
+                        if (!text || text.length < 3 || skipTexts.has(text)) continue;
+
+                        // Find parent link
+                        const parentLink = h.closest('a[href]');
+                        let url = '';
+                        let source = '';
+                        if (parentLink) {
+                            url = parentLink.href || '';
+                            // Source is usually the first line of the link text
+                            const linkLines = parentLink.innerText.trim().split('\n');
+                            if (linkLines.length > 1 && linkLines[0] !== text) {
+                                source = linkLines[0];
+                            }
+                        }
+
+                        // Get rating if present nearby
+                        const parent = h.parentElement;
+                        let rating = '';
+                        if (parent) {
+                            const rText = parent.innerText;
+                            const rMatch = rText.match(/(\d\.\d)\([\d,]+\)/);
+                            if (rMatch) rating = rMatch[0];
+                        }
+
+                        if (url && !url.includes('google.com/search')) {
+                            data.visual_matches.push({
+                                name: text,
+                                url: url,
+                                source: source,
+                                rating: rating
+                            });
+                        }
+                    }
+
+                    // Product results with prices (h3 elements with links)
+                    const h3s = document.querySelectorAll('h3');
+                    for (const h3 of h3s) {
+                        if (data.product_results.length >= 8) break;
+                        const text = h3.innerText.trim();
+                        if (!text || text.length < 5) continue;
+
+                        const container = h3.closest('.g') || h3.parentElement?.parentElement?.parentElement;
+                        if (!container) continue;
+
+                        const linkEl = container.querySelector('a[href^="http"]');
+                        const containerText = container.innerText;
+
+                        // Look for price patterns
+                        const priceMatch = containerText.match(/(?:US?\$|€|£|CHF|MX\$)\s*[\d,.]+/);
+                        const snippetEl = container.querySelector('.VwiC3b, [data-sncf]');
+
+                        if (linkEl) {
+                            data.product_results.push({
+                                name: text,
+                                url: linkEl.href,
+                                price: priceMatch ? priceMatch[0] : '',
+                                snippet: snippetEl ? snippetEl.innerText.trim().substring(0, 300) : ''
+                            });
+                        }
+                    }
+
+                    // Fallback: get full page text if nothing else worked
+                    if (!data.ai_overview && data.visual_matches.length === 0 && data.product_results.length === 0) {
+                        const main = document.querySelector('[role="main"], body');
+                        if (main) {
+                            data.raw_text = main.innerText.substring(0, 5000);
+                        }
+                    }
+
+                    return data;
+                }
+                """
+            )
+
+            lines = [f"Google Lens Results for image: {image_url}\n"]
+            has_data = False
+
+            if data.get("ai_overview"):
+                lines.append(f"Image Description: {data['ai_overview']}")
+                has_data = True
+
+            if data.get("visual_matches"):
+                lines.append("\nVisual Matches:")
+                for i, m in enumerate(data["visual_matches"], 1):
+                    entry = f"  {i}. {m['name']}"
+                    if m.get("rating"):
+                        entry += f" ({m['rating']})"
+                    lines.append(entry)
+                    if m.get("source"):
+                        lines.append(f"     Source: {m['source']}")
+                    if m.get("url"):
+                        lines.append(f"     URL: {m['url']}")
+                has_data = True
+
+            if data.get("product_results"):
+                lines.append("\nProduct Results:")
+                for i, p in enumerate(data["product_results"], 1):
+                    lines.append(f"  {i}. {p['name']}")
+                    if p.get("price"):
+                        lines.append(f"     Price: {p['price']}")
+                    if p.get("snippet"):
+                        lines.append(f"     {p['snippet']}")
+                    if p.get("url"):
+                        lines.append(f"     URL: {p['url']}")
+                has_data = True
+
+            if not has_data and data.get("raw_text"):
+                raw = re.sub(r'\n{3,}', '\n\n', data["raw_text"]).strip()
+                lines.append(raw)
+                has_data = True
+
+            if not has_data:
+                lines.append("Could not identify the image. Try with a clearer image or a direct product photo.")
+
+            return "\n".join(lines)
+
+        except Exception as e:
+            return f"Google Lens search failed: {e}"
+
+        finally:
+            await browser.close()
+
+
+@mcp.tool()
+async def google_lens(image_url: str) -> str:
+    """Reverse image search using Google Lens. Identify objects, products, brands, landmarks, text in images, and find visually similar results.
+
+    This gives vision capabilities to text-only models - pass an image URL and get back a text description of what's in the image.
+
+    Sample prompts that trigger this tool:
+        - "What is this product? https://example.com/photo.jpg"
+        - "Identify this image: https://example.com/image.png"
+        - "Do a reverse image search on this URL"
+        - "What brand is this? [image URL]"
+        - "Find similar images to this one"
+        - "Read the text in this image"
+
+    Args:
+        image_url: The full URL of the image to search (e.g. "https://example.com/photo.jpg").
+    """
+    return await _do_google_lens(image_url)
 
 
 # ---------------------------------------------------------------------------
