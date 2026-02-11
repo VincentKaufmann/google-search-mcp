@@ -27,6 +27,7 @@ Works with LM Studio, Claude Desktop, and any MCP-compatible client.
 | Google Scholar | Built-in | Not available |
 | Google Books | Built-in | Not available |
 | Google Images | Built-in | Separate API needed |
+| Google Lens | Built-in (reverse image search) | Not available |
 | Google Trends | Built-in | Separate API needed |
 | Page fetching | Built-in `visit_page` tool | Usually separate |
 
@@ -192,6 +193,19 @@ Search Google Images and get image URLs.
 
 ---
 
+### `google_lens` - Reverse Image Search
+
+Identify objects, products, brands, landmarks, and text in images using Google Lens. Gives vision capabilities to text-only models.
+
+**Parameters:**
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `image_url` | URL of the image to identify (required) | `"https://example.com/photo.jpg"` |
+
+Returns: identified object/product name, description, visual matches, text found in image, and related products with prices.
+
+---
+
 ### `google_trends` - Trends Lookup
 
 Check Google Trends for topic interest, related topics, and related queries.
@@ -317,6 +331,14 @@ Here are example prompts you can type into LM Studio or Claude Desktop, and whic
 | *"Show me images of the Northern Lights"* | `google_images` |
 | *"Find diagrams of neural network architecture"* | `google_images` |
 
+### Reverse Image Search
+| What you type | Tool called |
+|--------------|-------------|
+| *"What is this product? https://example.com/photo.jpg"* | `google_lens` |
+| *"Identify this image: https://example.com/image.png"* | `google_lens` |
+| *"What brand is this? [image URL]"* | `google_lens` |
+| *"Read the text in this image: https://..."* | `google_lens` |
+
 ### Trends
 | What you type | Tool called |
 |--------------|-------------|
@@ -417,7 +439,7 @@ python -m google_search_mcp
 ## Development
 
 ```bash
-git clone https://github.com/VincentKaufmann/google-search-mcp.git
+git clone https://github.com/VincentKaufmann/noapi-google-search-mcp.git
 cd google-search-mcp
 pip install -e .
 playwright install chromium

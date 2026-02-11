@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "noapi-google-search-mcp"
-version = "0.1.5"
+version = "0.1.6"
 description = "Google Search for Local LLMs - No API Key Required. MCP server using headless Chromium via Playwright."
 readme = "README.md"
 license = "MIT"
@@ -36,6 +36,6 @@ noapi-google-search-mcp = "google_search_mcp:main"
 packages = ["src/google_search_mcp"]
 
 [project.urls]
-Homepage = "https://github.com/VincentKaufmann/google-search-mcp"
-Repository = "https://github.com/VincentKaufmann/google-search-mcp"
-Issues = "https://github.com/VincentKaufmann/google-search-mcp/issues"
+Homepage = "https://github.com/VincentKaufmann/noapi-google-search-mcp"
+Repository = "https://github.com/VincentKaufmann/noapi-google-search-mcp"
+Issues = "https://github.com/VincentKaufmann/noapi-google-search-mcp/issues"
