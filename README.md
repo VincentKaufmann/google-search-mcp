@@ -197,10 +197,12 @@ Search Google Images and get image URLs.
 
 Identify objects, products, brands, landmarks, and text in images using Google Lens. Gives vision capabilities to text-only models.
 
+Supports both public image URLs and local file paths, so LM Studio users can save images locally and pass the file path.
+
 **Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `image_url` | URL of the image to identify (required) | `"https://example.com/photo.jpg"` |
+| `image_source` | Image URL or local file path (required) | `"https://example.com/photo.jpg"` or `"/home/user/image.jpg"` |
 
 Returns: identified object/product name, description, visual matches, text found in image, and related products with prices.
 
@@ -335,8 +337,8 @@ Here are example prompts you can type into LM Studio or Claude Desktop, and whic
 | What you type | Tool called |
 |--------------|-------------|
 | *"What is this product? https://example.com/photo.jpg"* | `google_lens` |
-| *"Identify this image: https://example.com/image.png"* | `google_lens` |
-| *"What brand is this? [image URL]"* | `google_lens` |
+| *"Identify this image: /home/user/photos/device.jpg"* | `google_lens` |
+| *"What brand is this? [image URL or file path]"* | `google_lens` |
 | *"Read the text in this image: https://..."* | `google_lens` |
 
 ### Trends
