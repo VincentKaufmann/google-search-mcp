@@ -3,101 +3,291 @@
 vincentkaufmann@protonmail.com
 
 > <img src="images/btc-donate-qr.jpeg" alt="BTC" width="80" align="left" style="margin-right:12px"> If you find this useful, consider supporting continued development and new features.<br>**BTC:** `16DT4AHemLyn7C6P116YepjY518gu9wUUH`<br clear="all">
+> <img src="images/eth-donate-qr.png" alt="ETH" width="80" align="left" style="margin-right:12px"> **ETH:** `0x7287D1F9c77832cFF246937af0443622bFdACD04`<br clear="all">
 
-**Give any LLM real Google search, vision, local OCR, and YouTube video RAG or local video RAG / understanding. No API key, no vision model needed.**
+**38 tools. Zero API keys. Give any local LLM real Google search, live feeds, vision, OCR, and full video understanding.**
 
-**Google Search, Google Lens + OpenCV object detection + local OCR + YouTube transcription, Q&A & clip extraction by topic for Local LLMs**
+An MCP server that turns your local LLM into a fully connected assistant. Real Google results, live news and social feeds, reverse image search, offline OCR, YouTube transcription and clip extraction — all running locally through headless Chromium and open-source ML models. No API keys, no usage limits, no cloud dependency.
 
-An MCP (Model Context Protocol) server that gives your local LLM real Google search, browsing, vision, text-reading, and full video understanding. Paste a YouTube link and the LLM transcribes it locally, answers questions about the content, and extracts video clips by topic - just ask "extract the part about X" and the LLM finds the right timestamps from the transcript and cuts the clip for you. Uses headless Chromium via Playwright for search, Google Lens for image identification, RapidOCR for offline OCR, and faster-whisper for local video transcription. No Google API key, no Custom Search Engine setup, no usage limits - just real Google results.
+Works with **LM Studio**, **Claude Desktop**, **OpenClaw**, **Ollama**, and any MCP-compatible client.
 
-Works with LM Studio, Claude Desktop, and any MCP-compatible client.
+---
+
+## What's New in v0.3.0 — 16 New Tools
+
+### Live Feed Subscriptions
+Subscribe to news, Reddit, Hacker News, YouTube channels, Twitter/X profiles, GitHub repos, arXiv papers, and podcasts. Content is fetched, stored locally in SQLite with full-text search, and available to your LLM instantly. YouTube videos are **auto-transcribed** on fetch — full Whisper transcripts, searchable via FTS5.
+
+| New Tool | What It Does |
+|----------|-------------|
+| `subscribe` | Add any source — news RSS, Reddit, HN, GitHub, arXiv, YouTube, podcasts, Twitter/X |
+| `unsubscribe` | Remove a subscription and its stored content |
+| `list_subscriptions` | See all active feeds with item counts |
+| `check_feeds` | Poll all subscriptions, fetch new content, auto-transcribe YouTube videos |
+| `search_feeds` | Full-text search across everything your feeds have collected |
+| `get_feed_items` | Browse recent items, filtered by source or type |
+
+**Pre-configured news sources** — subscribe with one word: `bbc`, `cnn`, `nyt`, `guardian`, `npr`, `aljazeera`, `techcrunch`, `ars`, `verge`, `wired`, `reuters`
+
+**arXiv shortcuts** — `ai`, `ml`, `cv`, `nlp`, `robotics`, `crypto`, `systems`, `hci`
+
+```
+"Subscribe to BBC News, r/LocalLLaMA, and Hacker News"
+"Follow @elonmusk on Twitter"
+"Subscribe to the YouTube channel @3Blue1Brown"
+"Watch anthropics/claude-code on GitHub for new releases"
+"Subscribe to the machine learning arXiv category"
+"Check my feeds"
+"Search my feeds for transformer architecture"
+"What's new in my Reddit feeds?"
+```
+
+### Local File Processing
+Transcribe meetings, convert formats, read documents — all local, no cloud.
+
+| New Tool | What It Does |
+|----------|-------------|
+| `transcribe_local` | Transcribe any local audio or video file with Whisper (mp3, wav, mp4, mkv, etc.) |
+| `convert_media` | FFmpeg format conversion — video to audio, format to format, video to GIF |
+| `read_document` | Extract text from PDF, DOCX, HTML, CSV, JSON, and 30+ text formats |
+
+### Email, Web Utilities & Cloud
+Pull emails, generate QR codes, shorten URLs, archive pages, look up Wikipedia, upload to S3.
+
+| New Tool | What It Does |
+|----------|-------------|
+| `fetch_emails` | Pull emails via IMAP — Gmail, Outlook, Yahoo, any IMAP server |
+| `paste_text` | Post text to a pastebin and get a shareable link |
+| `shorten_url` | Shorten any URL via TinyURL |
+| `generate_qr` | Generate QR code images for URLs, Wi-Fi, contacts, any data |
+| `archive_webpage` | Save a webpage snapshot to the Wayback Machine |
+| `wikipedia` | Look up any Wikipedia article, any language, with summary support |
+| `upload_to_s3` | Upload files to MinIO, AWS S3, DigitalOcean Spaces, Cloudflare R2 |
+
+```
+"Transcribe this recording: ~/meeting.mp3"
+"Convert video.mp4 to mp3"
+"Read this PDF: ~/report.pdf"
+"Check my email: user@gmail.com password: xxxx"
+"Shorten this URL: https://very-long-url..."
+"Generate a QR code for https://mysite.com"
+"Archive this article: https://news.example.com/story"
+"Wikipedia: quantum computing"
+"Upload report.pdf to my MinIO bucket"
+```
+
+**Zero extra dependencies for feeds.** Built entirely on Python stdlib — SQLite for storage, FTS5 for search, urllib for fetching, xml.etree for parsing. YouTube and Twitter use the existing Playwright browser. FFmpeg required for `convert_media` (commonly pre-installed).
+
+---
+
+## All 38 Tools by Category
+
+### Live Feed Subscriptions
+| Tool | Description |
+|------|-------------|
+| `subscribe` | Subscribe to news, Reddit, HN, GitHub, arXiv, YouTube, podcasts, Twitter/X |
+| `unsubscribe` | Remove a subscription and its stored content |
+| `list_subscriptions` | List all active subscriptions with item counts |
+| `check_feeds` | Fetch new content from all or specific sources |
+| `search_feeds` | Full-text search across all stored feed content |
+| `get_feed_items` | Get recent items filtered by source or type |
+
+### Google Search & Web
+| Tool | Description |
+|------|-------------|
+| `google_search` | Web search with time filters, site filters, pagination, language/region |
+| `google_news` | News search with article thumbnails inline |
+| `google_scholar` | Academic papers with citations |
+| `google_images` | Image search with results displayed inline in chat |
+| `google_trends` | Topic interest over time, related queries |
+| `visit_page` | Fetch any URL and extract readable text |
+
+### Travel & Commerce
+| Tool | Description |
+|------|-------------|
+| `google_shopping` | Product search with prices, stores, ratings, images |
+| `google_flights` | Flight search with prices and travel times |
+| `google_hotels` | Hotel search with images, prices, ratings, booking URLs |
+| `google_translate` | Translation across 100+ languages |
+| `google_maps` | Places search with ratings, reviews, and map screenshots |
+| `google_maps_directions` | Route directions with step-by-step and map screenshot |
+
+### Finance & Info
+| Tool | Description |
+|------|-------------|
+| `google_finance` | Stock prices, market data, company info |
+| `google_weather` | Current conditions and multi-day forecast |
+| `google_books` | Book search with author, ISBN, snippets |
+
+### Vision & OCR
+| Tool | Description |
+|------|-------------|
+| `google_lens` | Reverse image search — identify objects, products, landmarks, text |
+| `google_lens_detect` | Detect all objects in an image (OpenCV) and identify each via Lens |
+| `ocr_image` | Extract text from images locally (RapidOCR, fully offline) |
+| `list_images` | List image files in a directory for use with vision tools |
+
+### Video & Audio Intelligence
+| Tool | Description |
+|------|-------------|
+| `transcribe_video` | Download and transcribe any video with timestamps (faster-whisper) |
+| `transcribe_local` | Transcribe local audio/video files (mp3, wav, m4a, mp4, mkv, etc.) |
+| `search_transcript` | Search a transcribed video for topics by keyword |
+| `extract_video_clip` | Extract video clips by topic — ask and the LLM cuts it |
+| `convert_media` | Convert between audio/video formats via FFmpeg |
+
+### Documents & Data
+| Tool | Description |
+|------|-------------|
+| `read_document` | Extract text from PDF, DOCX, HTML, CSV, JSON, and 30+ formats |
+
+### Email
+| Tool | Description |
+|------|-------------|
+| `fetch_emails` | Pull emails via IMAP — Gmail, Outlook, Yahoo, iCloud, any IMAP server |
+
+### Web Utilities
+| Tool | Description |
+|------|-------------|
+| `paste_text` | Post text to a pastebin and get a shareable URL |
+| `shorten_url` | Shorten any URL via TinyURL |
+| `generate_qr` | Generate QR code images (URLs, Wi-Fi, contacts, any data) |
+| `archive_webpage` | Archive a webpage on the Wayback Machine |
+| `wikipedia` | Wikipedia article lookup in any language |
+
+### Cloud Storage
+| Tool | Description |
+|------|-------------|
+| `upload_to_s3` | Upload files to MinIO, AWS S3, DigitalOcean Spaces, Cloudflare R2, Backblaze B2 |
+
+---
 
 ## Why This Instead of API-Based Alternatives?
 
-| | **noapi-google-search-mcp** | API-based MCP servers |
-|---|---|---|
-| API key required | No | Yes (Google CSE API) |
-| Cost | Free | Paid after 100 queries/day |
-| Setup time | `pip install` + go | Create Google Cloud project, enable API, get key, configure CSE |
-| Results quality | Real Google results | Custom Search Engine (different ranking) |
-| JavaScript pages | Renders them (Chromium) | Cannot render JS |
-| Google Search | Built-in (with filters) | Basic only |
-| Google Shopping | Built-in | Not available |
-| Google Flights | Built-in | Not available |
-| Google Hotels | Built-in | Not available |
-| Google Translate | Built-in | Separate API needed |
-| Google Maps | Built-in | Not available |
-| Google Maps Directions | Built-in (with route map screenshot) | Not available |
-| Google Weather | Built-in | Not available |
-| Google Finance | Built-in | Not available |
-| Google News | Built-in | Usually not available |
-| Google Scholar | Built-in | Not available |
-| Google Books | Built-in | Not available |
-| Google Images | Built-in (inline in chat) | Separate API needed |
-| Google Lens | Built-in (reverse image search) | Not available |
-| Object detection | Built-in (OpenCV + Google Lens per object) | Not available |
-| Local OCR | Built-in (RapidOCR, works offline) | Not available |
-| Video transcription | Built-in (faster-whisper, local) | Not available |
-| Video clip extraction | Built-in (extract segments by topic) | Not available |
-| Google Trends | Built-in | Separate API needed |
-| Page fetching | Built-in `visit_page` tool | Usually separate |
+| | **noapi-google-search-mcp** | API-based MCP servers | OpenClaw built-in |
+|---|---|---|---|
+| API key required | **No** | Yes (Google CSE API) | Yes (Brave/Perplexity) |
+| Cost | **Free** | Paid after 100 queries/day | API fees |
+| Setup time | **`pip install` + go** | Create Cloud project, enable API, configure | Multiple API keys |
+| Results quality | **Real Google results** | Custom Search Engine | Brave index |
+| JavaScript pages | **Renders them (Chromium)** | Cannot render JS | Cannot render JS |
+| Tools count | **38** | 1-3 | 2 (web_search, web_fetch) |
+| Google Search | Built-in (with filters) | Basic only | Not available |
+| Google Shopping | Built-in | Not available | Not available |
+| Google Flights | Built-in | Not available | Not available |
+| Google Hotels | Built-in | Not available | Not available |
+| Google Translate | Built-in | Separate API needed | Not available |
+| Google Maps | Built-in (with screenshots) | Not available | Not available |
+| Google Maps Directions | Built-in (with route map) | Not available | Not available |
+| Google Weather | Built-in | Not available | Not available |
+| Google Finance | Built-in | Not available | Not available |
+| Google News | Built-in | Usually not available | Not available |
+| Google Scholar | Built-in | Not available | Not available |
+| Google Books | Built-in | Not available | Not available |
+| Google Images | Built-in (inline in chat) | Separate API needed | Not available |
+| Google Lens | Built-in (reverse image search) | Not available | Not available |
+| Object detection | Built-in (OpenCV + Lens) | Not available | Not available |
+| Local OCR | Built-in (offline) | Not available | Not available |
+| Video transcription | Built-in (local Whisper) | Not available | Not available |
+| Video clip extraction | Built-in | Not available | Not available |
+| Google Trends | Built-in | Separate API needed | Not available |
+| Feed subscriptions | **Built-in (8 source types)** | Not available | Not available |
+| Full-text feed search | **Built-in (SQLite FTS5)** | Not available | Not available |
+| Auto-transcribe feeds | **Built-in (YouTube → Whisper)** | Not available | Not available |
+| Local file transcription | **Built-in (any audio/video)** | Not available | Not available |
+| Media format conversion | **Built-in (FFmpeg)** | Not available | Not available |
+| Document reader | **Built-in (PDF, DOCX, etc.)** | Not available | Not available |
+| Email integration | **Built-in (IMAP)** | Not available | Not available |
+| Pastebin | **Built-in** | Not available | Not available |
+| URL shortener | **Built-in (TinyURL)** | Not available | Not available |
+| QR code generation | **Built-in (OpenCV)** | Not available | Not available |
+| Web archiving | **Built-in (Wayback Machine)** | Not available | Not available |
+| Wikipedia | **Built-in** | Not available | Not available |
+| S3/MinIO upload | **Built-in** | Not available | Not available |
+| Page fetching | Built-in | Usually separate | Basic |
 
-## Tools
+---
 
-### `google_search` - Web Search
+## Tool Details & Parameters
 
-Search Google and get structured results with titles, URLs, and snippets.
+### Feed Subscription Tools
 
-**Parameters:**
+#### `subscribe` — Add a Content Source
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `source_type` | Source type (required) | `"news"`, `"reddit"`, `"hackernews"`, `"github"`, `"arxiv"`, `"youtube"`, `"podcast"`, `"twitter"` |
+| `identifier` | Source identifier (required) | `"bbc"`, `"LocalLLaMA"`, `"top"`, `"anthropics/claude-code"`, `"ml"`, `"@3Blue1Brown"`, `"https://..."`, `"elonmusk"` |
+| `name` | Display name (optional) | `"My Custom Feed"` |
+
+**Identifier formats by type:**
+- **news:** preset name (`bbc`, `cnn`, `nyt`, `guardian`, `npr`, `aljazeera`, `techcrunch`, `ars`, `verge`, `wired`, `reuters`) or any RSS URL
+- **reddit:** subreddit name (e.g. `LocalLLaMA`, `programming`)
+- **hackernews:** `top`, `new`, or `best`
+- **github:** `owner/repo` (e.g. `anthropics/claude-code`)
+- **arxiv:** shortcut (`ai`, `ml`, `cv`, `nlp`, `robotics`, `crypto`) or category like `cs.AI`
+- **youtube:** channel handle (`@3Blue1Brown`), URL, or channel ID (`UCxxxx`)
+- **podcast:** RSS feed URL
+- **twitter:** username with or without `@`
+
+#### `check_feeds` — Fetch New Content
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `source_type` | Limit to one type (optional) | `"news"`, `"reddit"` |
+
+#### `search_feeds` — Full-Text Search
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `query` | Search query (required) — supports FTS5: AND, OR, NOT, "quoted phrases" | `"machine learning"`, `"GPU NOT NVIDIA"` |
+| `source_type` | Limit to one type (optional) | `"news"` |
+| `limit` | Max results (default 20) | `10` |
+
+#### `get_feed_items` — Browse Recent Items
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `source` | Filter by source name (optional) | `"BBC"`, `"LocalLLaMA"` |
+| `source_type` | Filter by type (optional) | `"reddit"`, `"hackernews"` |
+| `limit` | Max items (default 20) | `10` |
+
+---
+
+### Google Search Tools
+
+#### `google_search` — Web Search
+
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `query` | Search query (required) | `"best python frameworks 2025"` |
 | `num_results` | Number of results (1-10, default 5) | `5` |
 | `time_range` | Filter by recency | `"past_hour"`, `"past_day"`, `"past_week"`, `"past_month"`, `"past_year"` |
-| `site` | Limit to a domain | `"reddit.com"`, `"stackoverflow.com"`, `"github.com"`, `"arxiv.org"`, `"news.ycombinator.com"` |
-| `page` | Results page (1-10, default 1) | `2` for next page |
-| `language` | Language code | `"en"`, `"de"`, `"fr"`, `"es"`, `"ja"`, `"zh"` |
-| `region` | Country/region code | `"us"`, `"gb"`, `"de"`, `"fr"`, `"jp"` |
+| `site` | Limit to a domain | `"reddit.com"`, `"stackoverflow.com"`, `"github.com"` |
+| `page` | Results page (1-10, default 1) | `2` |
+| `language` | Language code | `"en"`, `"de"`, `"fr"`, `"ja"` |
+| `region` | Country/region code | `"us"`, `"gb"`, `"de"`, `"jp"` |
 
-**How your LLM uses it:** The LLM automatically sees these parameters in the tool definition. When you ask "search Reddit for Python tips from the past week", it will call `google_search(query="Python tips", site="reddit.com", time_range="past_week")`.
+#### `google_shopping` — Product Search
 
----
-
-### `google_shopping` - Product Search
-
-Search Google Shopping for products with prices, stores, and ratings.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `query` | Product search query (required) | `"Sony WH-1000XM5"` |
 | `num_results` | Number of results (1-10, default 5) | `5` |
 
-Returns: product name, price, store, rating, and URL.
+#### `google_flights` — Flight Search
 
----
-
-### `google_flights` - Flight Search
-
-Search Google Flights for flight options, prices, and travel times.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `origin` | Departure city or airport (required) | `"New York"`, `"LAX"` |
 | `destination` | Arrival city or airport (required) | `"London"`, `"NRT"` |
-| `date` | Departure date (optional) | `"March 15"`, `"2025-03-15"` |
-| `return_date` | Return date for round trips (optional) | `"March 22"` |
+| `date` | Departure date (optional) | `"March 15"` |
+| `return_date` | Return date (optional) | `"March 22"` |
 
 ![Google Flights](images/google_flights.png)
 
----
+#### `google_hotels` — Hotel Search
 
-### `google_hotels` - Hotel Search
-
-Search for hotels and accommodation with thumbnail images, prices, ratings, and booking URLs.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `query` | Hotel search with location (required) | `"Paris"`, `"Tokyo near Shibuya"` |
@@ -105,87 +295,49 @@ Search for hotels and accommodation with thumbnail images, prices, ratings, and 
 
 ![Google Hotels](images/google_hotels.png)
 
----
+#### `google_translate` — Translation
 
-### `google_translate` - Translation
-
-Translate text between languages using Google Translate.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `text` | Text to translate (required) | `"Hello, how are you?"` |
-| `to_language` | Target language (required) | `"Spanish"`, `"Japanese"`, `"French"` |
-| `from_language` | Source language (optional, auto-detected) | `"English"`, `"German"` |
+| `to_language` | Target language (required) | `"Spanish"`, `"Japanese"` |
+| `from_language` | Source language (optional, auto-detected) | `"English"` |
 
----
+#### `google_maps` — Places Search with Map Screenshot
 
-### `google_maps` - Places Search with Map Screenshot
-
-Search Google Maps for restaurants, businesses, and places with ratings, prices, addresses, and reviews. Returns an inline map screenshot showing all pinned locations.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `query` | Place search query (required) | `"pizza near Central Park"` |
 | `num_results` | Number of results (1-10, default 5) | `5` |
 
-Returns: place names, ratings, price range, addresses, descriptions, opening hours, Google Maps links, and a map screenshot with pinned locations.
-
 ![Google Maps Places Search](images/google_maps_places.png)
 
----
+#### `google_maps_directions` — Route Directions with Map
 
-### `google_maps_directions` - Route Directions with Map Screenshot
-
-Get driving, walking, transit, or cycling directions between two locations. Returns distance, duration, step-by-step route info, and an inline screenshot of the map showing the full route.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `origin` | Starting location (required) | `"Berlin"`, `"Times Square, New York"` |
-| `destination` | Ending location (required) | `"Munich"`, `"Central Park, New York"` |
+| `origin` | Starting location (required) | `"Berlin"` |
+| `destination` | Ending location (required) | `"Munich"` |
 | `mode` | Travel mode (default "driving") | `"driving"`, `"walking"`, `"transit"`, `"cycling"` |
-
-Returns: distance, duration, route steps, and an inline map screenshot showing the route.
 
 ![Google Maps Directions](images/google_maps.png)
 
----
+#### `google_weather` — Weather
 
-### `google_weather` - Weather Lookup
-
-Get current weather conditions and forecast for any location worldwide.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `location` | City or location (required) | `"Dubai"`, `"New York"`, `"Tokyo"` |
+| `location` | City or location (required) | `"Dubai"`, `"Tokyo"` |
 
-Returns: temperature (°C/°F), condition, precipitation, humidity, wind, and multi-day forecast.
+#### `google_finance` — Stock & Market Data
 
----
-
-### `google_finance` - Stock & Market Data
-
-Look up stock prices, market data, and company information from Google Finance.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `query` | Stock ticker with exchange or company name (required) | `"AAPL:NASDAQ"`, `"TSLA:NASDAQ"` |
-
-Returns: current price, change, market info, key stats, and company description.
+| `query` | Stock ticker or company name (required) | `"AAPL:NASDAQ"`, `"TSLA:NASDAQ"` |
 
 ![Google Finance](images/google_stocks.png)
 
----
+#### `google_news` — News Search
 
-### `google_news` - News Search
-
-Search Google News for recent headlines with source and timestamp.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `query` | News search query (required) | `"AI regulation"` |
@@ -193,41 +345,22 @@ Search Google News for recent headlines with source and timestamp.
 
 ![Google News](images/google_news.png)
 
----
+#### `google_scholar` — Academic Search
 
-### `google_scholar` - Academic Search
-
-Search Google Scholar for papers, citations, and research.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `query` | Academic search query (required) | `"transformer attention mechanism"` |
 | `num_results` | Number of results (1-10, default 5) | `5` |
 
-Returns: title, URL, authors, citation count, and snippet for each paper.
+#### `google_books` — Book Search
 
----
-
-### `google_books` - Book Search
-
-Search Google Books for books, textbooks, and publications.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `query` | Book search query (required) | `"machine learning"` |
 | `num_results` | Number of results (1-10, default 5) | `5` |
 
-Returns: title, author, ISBN (when available), URL, and snippet.
+#### `google_images` — Image Search (inline in chat)
 
----
-
-### `google_images` - Image Search (with inline images)
-
-Search Google Images and display results directly in chat. Images are returned inline so you can see them without leaving the conversation.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `query` | Image search query (required) | `"sunset over ocean"` |
@@ -237,167 +370,104 @@ Search Google Images and display results directly in chat. Images are returned i
 
 ![Google Image Search](images/google_image_search2.png)
 
----
+#### `google_trends` — Trends
 
-### `google_lens` - Reverse Image Search
-
-Identify objects, products, brands, landmarks, and text in images using Google Lens. Gives vision capabilities to text-only models.
-
-Supports image URLs, local file paths, and base64-encoded images (drag-and-drop in LM Studio).
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `image_source` | Image URL, local file path, or base64 image data (required) | `"https://example.com/photo.jpg"` or `"/home/user/image.jpg"` or drag image into chat |
+| `query` | Topic (required) | `"artificial intelligence"` |
 
-Returns: identified object/product name, description, visual matches, text found in image, and related products with prices.
+---
+
+### Vision & OCR Tools
+
+#### `google_lens` — Reverse Image Search
+
+Identify objects, products, brands, landmarks, and text. Supports URLs, local files, and base64 drag-and-drop.
+
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `image_source` | Image URL, file path, or base64 (required) | `"https://example.com/photo.jpg"` or `"/home/user/image.jpg"` |
 
 ![Google Lens Reverse Image Search](images/google_reverse_image_search.png)
 
----
+#### `google_lens_detect` — Object Detection + Identification
 
-### `google_trends` - Trends Lookup
+Detect all objects (OpenCV), crop each one, identify individually via Lens.
 
-Check Google Trends for topic interest, related topics, and related queries.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `query` | Topic to check trends for (required) | `"artificial intelligence"` |
+| `image_source` | Local file path or base64 (required) | `"/home/user/photo.jpg"` |
 
----
+#### `ocr_image` — Local OCR (offline)
 
-### `google_lens_detect` - Object Detection + Identification
+Extract text from images using RapidOCR. No internet needed.
 
-Detect all objects in an image using OpenCV, crop each one, and identify them individually via Google Lens. Useful when an image contains multiple items and you want each identified separately.
-
-Supports local file paths and base64-encoded images (drag-and-drop in LM Studio).
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `image_source` | Local file path or base64 image data (required) | `"/home/user/photo.jpg"` or drag image into chat |
-
-Returns: per-object identification from Google Lens, including the original full image results.
-
----
-
-### `ocr_image` - Local OCR (no internet needed)
-
-Extract text from images locally using RapidOCR (PaddleOCR models on ONNX Runtime). Runs entirely offline. Reads screenshots, documents, photos of signs, labels, receipts, or any image containing text.
-
-Gives text-reading capabilities to text-only models without needing a vision model or internet. Supports local file paths and base64-encoded images (drag-and-drop in LM Studio).
-
-**Parameters:**
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `image_source` | Local file path or base64 image data (required) | `"/home/user/screenshot.png"` or drag image into chat |
-
-Returns: extracted text sorted by position, with confidence scores.
+| `image_source` | Local file path or base64 (required) | `"/home/user/screenshot.png"` |
 
 ![Local OCR](images/local_OCR.png)
 
-**Example output:**
-```
-OCR Results for: /home/user/screenshot.png
-Text regions found: 12
+#### `list_images` — Image Discovery
 
---- Extracted Text ---
-NVIDIA-SMI 580.95.05  Driver Version: 580.95.05  CUDA Version: 13.0
-GPU Name  Persistence-M  Bus-Id  Disp.A
-NVIDIA GB10  On  00000000F:01:00.0
-
---- Detailed Results (with confidence) ---
-[88%] NVIDIA-SMI 580.95.05
-[88%] Driver Version: 580.95.05
-[84%] CUDA Version: 13.0
-```
+| Parameter | Description | Example |
+|-----------|-------------|---------|
+| `directory` | Folder to scan (default `~/lens/`) | `"/home/user/photos"` |
 
 ---
 
-### `transcribe_video` - Video Transcription
+### Video Intelligence Tools
 
-Download and transcribe YouTube videos (or any video URL) locally with timestamps using faster-whisper. The LLM can then answer questions about the video, point to specific timestamps, and identify when topics start and end.
+#### `transcribe_video` — Video Transcription
 
-**Parameters:**
+Download and transcribe any YouTube video (or video URL) with timestamps using faster-whisper.
+
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `url` | YouTube URL or any video URL (required) | `"https://youtube.com/watch?v=..."` |
-| `model_size` | Whisper model: tiny/base/small/medium/large (default: base) | `"small"` |
-| `language` | Language code, auto-detected if empty | `"en"` |
+| `url` | YouTube or video URL (required) | `"https://youtube.com/watch?v=..."` |
+| `model_size` | Whisper model size (default: tiny) | `"tiny"`, `"base"`, `"small"`, `"medium"`, `"large"` |
+| `language` | Language code (optional, auto-detected) | `"en"` |
 
-**Example output:**
-```
-Video Transcript
-Title: How to Build a Home Server
-Channel: TechChannel
-Duration: 15:30
-Language: en (confidence: 98%)
+#### `search_transcript` — Transcript Search
 
---- Transcript ---
-[0:00 - 0:05] Welcome back to the channel.
-[0:05 - 0:12] Today we're going to build a home server from scratch.
-[0:12 - 0:25] First, let's talk about the hardware you'll need...
-```
-
----
-
-### `search_transcript` - Transcript Search
-
-Search a previously transcribed video for segments matching a keyword or phrase. Returns matching segments with timestamps and surrounding context, ready for clip extraction.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `url` | Same video URL used with transcribe_video (required) | `"https://youtube.com/watch?v=..."` |
-| `query` | Keyword or phrase to search for (required) | `"memory bandwidth"` |
-| `model_size` | Must match transcription model (default: tiny) | `"tiny"` |
-| `context_segments` | Surrounding segments to include (default: 2) | `3` |
+| `url` | Same URL used with transcribe_video (required) | `"https://youtube.com/watch?v=..."` |
+| `query` | Keyword or phrase (required) | `"memory bandwidth"` |
+| `context_segments` | Surrounding segments (default: 2) | `3` |
 
----
+#### `extract_video_clip` — Clip Extraction by Topic
 
-### `extract_video_clip` - Video Clip Extraction by Topic
+Ask "extract the part about X" and the LLM finds timestamps from the transcript and cuts the clip.
 
-Extract video clips by topic. After transcription, just ask "extract the part about X" and the LLM reads the transcript, finds the right timestamps, and cuts the clip automatically. A buffer is added before and after to avoid cutting off content. Clips are saved to `~/clips/`.
-
-**Parameters:**
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `url` | YouTube URL or local video file path (required) | `"https://youtube.com/watch?v=..."` |
-| `start_seconds` | Start time in seconds (required) | `150` (for 2:30) |
-| `end_seconds` | End time in seconds (required) | `315` (for 5:15) |
+| `url` | YouTube URL or local video (required) | `"https://youtube.com/watch?v=..."` |
+| `start_seconds` | Start time in seconds (required) | `150` |
+| `end_seconds` | End time in seconds (required) | `315` |
 | `buffer_seconds` | Extra seconds before/after (default: 3) | `5.0` |
-| `output_filename` | Custom filename without extension (optional) | `"hardware_overview"` |
+| `output_filename` | Custom filename (optional) | `"hardware_overview"` |
 
 ---
-
-### `list_images` - Image Discovery
-
-List image files in a directory so text-only models can discover and pass them to `google_lens`, `google_lens_detect`, or `ocr_image`. Default directory: `~/lens/`.
-
-**Parameters:**
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `directory` | Folder to scan (optional, default `~/lens/`) | `"/home/user/photos"` |
-
----
-
-### `visit_page` - Page Fetcher
-
-Fetch any URL and extract readable text content. Use after search to read full articles.
-
-**Parameters:**
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `url` | Full URL to fetch (required) | `"https://example.com/article"` |
-
-## How Does the LLM Know About These Tools?
-
-You don't need to teach the LLM anything. MCP automatically exposes all tool names, descriptions, and parameters to the model. The LLM picks the right tool and parameters automatically based on your request.
 
 ## Sample Prompts
 
-Here are example prompts you can type into LM Studio or Claude Desktop, and which tool the LLM will use:
+### Feed Subscriptions
+| What you type | Tool called |
+|--------------|-------------|
+| *"Subscribe to BBC News and CNN"* | `subscribe` |
+| *"Follow r/LocalLLaMA on Reddit"* | `subscribe` |
+| *"Monitor Hacker News top stories"* | `subscribe` |
+| *"Watch anthropics/claude-code for new releases"* | `subscribe` |
+| *"Subscribe to @3Blue1Brown on YouTube"* | `subscribe` |
+| *"Follow @elonmusk on Twitter"* | `subscribe` |
+| *"Subscribe to the ML arXiv category"* | `subscribe` |
+| *"Check my feeds"* | `check_feeds` |
+| *"What's new in my subscriptions?"* | `check_feeds` |
+| *"Search my feeds for transformer architecture"* | `search_feeds` |
+| *"Show me the latest Reddit posts"* | `get_feed_items` |
+| *"What are my subscriptions?"* | `list_subscriptions` |
+| *"Unsubscribe from BBC News"* | `unsubscribe` |
 
 ### Web Search
 | What you type | Tool called | Parameters used |
@@ -407,164 +477,59 @@ Here are example prompts you can type into LM Studio or Claude Desktop, and whic
 | *"Search Stack Overflow for async Python examples"* | `google_search` | `query` + `site="stackoverflow.com"` |
 | *"What's new in AI this week?"* | `google_search` | `query` + `time_range="past_week"` |
 | *"Search Hacker News for posts about Rust"* | `google_search` | `query` + `site="news.ycombinator.com"` |
-| *"Find GitHub repos for MCP servers"* | `google_search` | `query` + `site="github.com"` |
-| *"Get page 2 of results for machine learning tutorials"* | `google_search` | `query` + `page=2` |
+| *"Get page 2 of results for ML tutorials"* | `google_search` | `query` + `page=2` |
 | *"Search for restaurants in Tokyo in Japanese"* | `google_search` | `query` + `language="ja"` + `region="jp"` |
-| *"Find German news about the EU from the past month"* | `google_search` | `query` + `language="de"` + `time_range="past_month"` |
 
-### Shopping
+### Shopping & Travel
 | What you type | Tool called |
 |--------------|-------------|
 | *"Find the cheapest MacBook Air"* | `google_shopping` |
-| *"Compare prices for Sony WH-1000XM5 headphones"* | `google_shopping` |
-| *"How much does a Nintendo Switch cost?"* | `google_shopping` |
-| *"Search for running shoes under $100"* | `google_shopping` |
-
-### Flights
-| What you type | Tool called |
-|--------------|-------------|
 | *"Find flights from New York to London"* | `google_flights` |
-| *"Search for cheap flights from LA to Tokyo"* | `google_flights` |
-| *"Flights from San Francisco to Paris on March 15"* | `google_flights` |
-| *"How much are flights from Dubai to Bangkok?"* | `google_flights` |
-
-### Hotels
-| What you type | Tool called |
-|--------------|-------------|
 | *"Find hotels in Paris for next weekend"* | `google_hotels` |
-| *"Search for cheap hotels in Tokyo"* | `google_hotels` |
-| *"Best hotels near Times Square New York"* | `google_hotels` |
-| *"Find 5-star hotels in Dubai"* | `google_hotels` |
-
-### Translation
-| What you type | Tool called |
-|--------------|-------------|
 | *"Translate 'hello world' to Japanese"* | `google_translate` |
-| *"How do you say 'thank you' in French?"* | `google_translate` |
-| *"Translate this to Spanish: The weather is nice today"* | `google_translate` |
-| *"What does 'Guten Morgen' mean in English?"* | `google_translate` |
 
-### Maps & Places
+### Maps & Directions
 | What you type | Tool called |
 |--------------|-------------|
 | *"Find Italian restaurants near Times Square"* | `google_maps` |
-| *"Where are the best coffee shops in Berlin?"* | `google_maps` |
-| *"Search for hotels in Tokyo"* | `google_maps` |
-| *"Find EV charging stations in San Francisco"* | `google_maps` |
-| *"What are the top-rated gyms in London?"* | `google_maps` |
-
-### Directions (with route map screenshot)
-| What you type | Tool called |
-|--------------|-------------|
 | *"Get directions from Berlin to Munich"* | `google_maps_directions` |
-| *"How do I drive from New York to Boston?"* | `google_maps_directions` |
 | *"Walking directions from the Eiffel Tower to the Louvre"* | `google_maps_directions` |
-| *"Transit route from Shibuya to Akihabara"* | `google_maps_directions` |
-| *"Cycling route from Golden Gate Bridge to Fisherman's Wharf"* | `google_maps_directions` |
-| *"Show me the route from London to Edinburgh"* | `google_maps_directions` |
 
-### Weather
-| What you type | Tool called |
-|--------------|-------------|
-| *"What's the weather in Dubai?"* | `google_weather` |
-| *"Is it going to rain in London today?"* | `google_weather` |
-| *"What's the temperature in New York?"* | `google_weather` |
-| *"Weather forecast for Tokyo this week"* | `google_weather` |
-
-### Finance & Stocks
+### Finance, Weather & Info
 | What you type | Tool called |
 |--------------|-------------|
 | *"What's Apple's stock price?"* | `google_finance` |
-| *"How is Tesla stock doing?"* | `google_finance` |
-| *"Look up NVIDIA market cap"* | `google_finance` |
-| *"How is the S&P 500 doing today?"* | `google_finance` |
-
-### News
-| What you type | Tool called |
-|--------------|-------------|
+| *"What's the weather in Dubai?"* | `google_weather` |
 | *"What are today's top headlines?"* | `google_news` |
-| *"Any recent news about the stock market?"* | `google_news` |
-| *"What happened in the Japan election?"* | `google_news` |
-
-### Academic Research
-| What you type | Tool called |
-|--------------|-------------|
 | *"Find papers on transformer attention mechanisms"* | `google_scholar` |
-| *"Look up academic research about CRISPR"* | `google_scholar` |
-| *"What does the research say about intermittent fasting?"* | `google_scholar` |
-
-### Books
-| What you type | Tool called |
-|--------------|-------------|
 | *"Find books about machine learning"* | `google_books` |
-| *"Search for books by Stephen King"* | `google_books` |
-| *"What are the best books on Python programming?"* | `google_books` |
 
-### Images (displayed inline in chat)
+### Images & Vision
 | What you type | Tool called |
 |--------------|-------------|
 | *"Show me images of the Northern Lights"* | `google_images` |
-| *"Show me what a DGX Spark looks like"* | `google_images` |
-| *"Find diagrams of neural network architecture"* | `google_images` |
-
-### Reverse Image Search
-| What you type | Tool called |
-|--------------|-------------|
-| *"What is this product? https://example.com/photo.jpg"* | `google_lens` |
-| *"Identify this image: /home/user/photos/device.jpg"* | `google_lens` |
-| *"What brand is this? [image URL or file path]"* | `google_lens` |
-| *"Read the text in this image: https://..."* | `google_lens` |
-
-### Trends
-| What you type | Tool called |
-|--------------|-------------|
-| *"What's trending in tech right now?"* | `google_trends` |
-| *"Is Python more popular than JavaScript?"* | `google_trends` |
-
-### Object Detection
-| What you type | Tool called |
-|--------------|-------------|
-| *"Detect and identify all objects in /home/user/photo.jpg"* | `google_lens_detect` |
-| *"What are all the items in this photo? /path/to/image.jpg"* | `google_lens_detect` |
-
-### OCR (Text Extraction)
-| What you type | Tool called |
-|--------------|-------------|
-| *"Read the text in this image: /home/user/screenshot.png"* | `ocr_image` |
-| *"OCR this document: /home/user/receipt.jpg"* | `ocr_image` |
-| *"What does this label say? /home/user/photo.jpg"* | `ocr_image` |
-| *"Extract text from /home/user/document.png"* | `ocr_image` |
-
-### Drag-and-Drop Images (LM Studio with vision override)
-| What you do | Tool called |
-|------------|-------------|
+| *"What is this product? /path/to/photo.jpg"* | `google_lens` |
+| *"Detect all objects in this photo"* | `google_lens_detect` |
+| *"Read the text in this screenshot"* | `ocr_image` |
 | Drag image into chat + *"What is this?"* | `google_lens` |
 | Drag image into chat + *"Read the text"* | `ocr_image` |
-| Drag image into chat + *"Detect all objects"* | `google_lens_detect` |
-| Drag image into chat + *"Reverse image search this"* | `google_lens` |
 
 > **Tip:** To enable drag-and-drop images with text-only models in LM Studio, add a `model.yaml` file in the model directory with `metadataOverrides: { vision: true }`. The image will be sent as base64 and the MCP tools handle it automatically.
 
-### Video Transcription
+### Video Intelligence
 | What you type | Tool called |
 |--------------|-------------|
 | *"Transcribe this video: https://youtube.com/watch?v=..."* | `transcribe_video` |
-| *"What do they discuss in this video? https://..."* | `transcribe_video` |
-| *"Summarize this YouTube video: https://..."* | `transcribe_video` |
-| *"At what timestamp do they talk about X in this video?"* | `transcribe_video` |
-
-### Video Clip Extraction by Topic
-| What you type | Tool called |
-|--------------|-------------|
-| *"Extract the part where they talk about memory bandwidth"* | `extract_video_clip` |
-| *"Save the segment where they discuss pricing"* | `extract_video_clip` |
-| *"Cut out the section about the hardware specs"* | `extract_video_clip` |
+| *"What do they discuss in this video?"* | `transcribe_video` |
+| *"Find where they talk about memory bandwidth"* | `search_transcript` |
+| *"Extract the part where they discuss pricing"* | `extract_video_clip` |
 
 ### Page Reading
 | What you type | Tool called |
 |--------------|-------------|
 | *"Read this article for me: https://..."* | `visit_page` |
-| *"What does this page say? https://..."* | `visit_page` |
+
+---
 
 ## Installation
 
@@ -575,11 +540,7 @@ pipx install noapi-google-search-mcp
 playwright install chromium
 ```
 
-This puts `noapi-google-search-mcp` on your PATH so you can use it directly.
-
 ### Install in a Virtual Environment
-
-If you don't have pipx, install in a dedicated venv:
 
 ```bash
 python3 -m venv ~/.local/share/noapi-google-search-mcp
@@ -592,8 +553,6 @@ python3 -m venv ~/.local/share/noapi-google-search-mcp
 ### LM Studio
 
 Add to `~/.lmstudio/mcp.json`:
-
-**If installed with pipx** (command is on PATH):
 
 ```json
 {
@@ -608,20 +567,7 @@ Add to `~/.lmstudio/mcp.json`:
 }
 ```
 
-**If installed in a venv** (use the full path):
-
-```json
-{
-  "mcpServers": {
-    "google-search": {
-      "command": "~/.local/share/noapi-google-search-mcp/bin/noapi-google-search-mcp",
-      "env": {
-        "PYTHONUNBUFFERED": "1"
-      }
-    }
-  }
-}
-```
+If installed in a venv, use the full path: `~/.local/share/noapi-google-search-mcp/bin/noapi-google-search-mcp`
 
 ### Claude Desktop
 
@@ -637,7 +583,19 @@ Add to your Claude Desktop config (`claude_desktop_config.json`):
 }
 ```
 
-> If installed in a venv, use the full path to the binary instead.
+### OpenClaw
+
+Add to your agent configuration:
+
+```yaml
+mcp_servers:
+  google-search:
+    command: "noapi-google-search-mcp"
+    env:
+      PYTHONUNBUFFERED: "1"
+```
+
+This gives your OpenClaw agent access to all 38 tools — real Google search, live feeds, vision, OCR, and video intelligence — with zero API keys.
 
 ### As a CLI
 

@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "noapi-google-search-mcp"
-version = "0.2.5"
-description = "Google Search for Local LLMs - No API Key Required. MCP server using headless Chromium via Playwright."
+version = "0.3.0"
+description = "38 tools for Local LLMs — Google Search, live feeds, email, documents, QR codes, Wikipedia, S3 upload, vision, OCR, video transcription. No API key required."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     { name = "Vincent Kaufmann", email = "vincent@kaufmann.dev" },
 ]
-keywords = ["mcp", "google", "search", "playwright", "llm", "ai", "local-llm", "no-api", "chromium", "lm-studio"]
+keywords = ["mcp", "google", "search", "playwright", "llm", "ai", "local-llm", "no-api", "chromium", "lm-studio", "rss", "feeds", "reddit", "hackernews", "youtube", "twitter", "arxiv", "openclaw", "ollama", "email", "imap", "pdf", "ocr", "qr-code", "wikipedia", "minio", "s3", "pastebin", "ffmpeg", "whisper"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",

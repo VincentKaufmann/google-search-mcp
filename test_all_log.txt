@@ -1,0 +1,357 @@
+======================================================================
+  noapi-google-search-mcp — Full Regression Test Suite
+======================================================================
+Date: 2026-02-17 00:39:48
+Python: 3.12.3
+Platform: linux
+
+
+======================================================================
+  TOOL REGISTRATION
+======================================================================
+
+--- Tool count and registration ---
+    Verifying tool registration:
+    CHECK: PASS — Tool count == 38 (got 38)
+    CHECK: PASS — Tool registered: transcribe_local
+    CHECK: PASS — Tool registered: convert_media
+    CHECK: PASS — Tool registered: read_document
+    CHECK: PASS — Tool registered: fetch_emails
+    CHECK: PASS — Tool registered: paste_text
+    CHECK: PASS — Tool registered: shorten_url
+    CHECK: PASS — Tool registered: generate_qr
+    CHECK: PASS — Tool registered: archive_webpage
+    CHECK: PASS — Tool registered: wikipedia
+    CHECK: PASS — Tool registered: upload_to_s3
+    CHECK: PASS — Tool registered: subscribe
+    CHECK: PASS — Tool registered: check_feeds
+    CHECK: PASS — Tool registered: search_feeds
+    CHECK: PASS — Tool registered: get_feed_items
+    CHECK: PASS — Tool registered: list_subscriptions
+    CHECK: PASS — Tool registered: unsubscribe
+  -> PASS  (0.00s)
+
+
+======================================================================
+  UNIT TESTS
+======================================================================
+
+--- _strip_html — HTML tag removal ---
+    Testing HTML tag removal:
+    CHECK: PASS — strip_html('<p>Hello <b>world</b></p>') == 'Hello world'
+    CHECK: PASS — strip_html('') == ''
+    CHECK: PASS — strip_html('plain text') == 'plain text'
+    CHECK: PASS — strip_html("<a href='x'>link</a> and <em>emphasis</) == 'link and emphasis'
+    CHECK: PASS — strip_html('<div><span>nested</span></div>') == 'nested'
+  -> PASS  (0.00s)
+
+--- _parse_rss_atom — RSS 2.0 parsing ---
+    Testing RSS 2.0 parsing:
+    CHECK: PASS — Item count == 2
+    CHECK: PASS — First title
+    CHECK: PASS — First URL
+    CHECK: PASS — First content
+    CHECK: PASS — First pubDate
+    CHECK: PASS — Second title
+    CHECK: PASS — HTML stripped
+  -> PASS  (0.00s)
+
+--- _parse_rss_atom — Atom parsing ---
+    Testing Atom feed parsing:
+    CHECK: PASS — Item count == 2
+    CHECK: PASS — First title
+    CHECK: PASS — First URL (rel=alternate)
+    CHECK: PASS — First author
+    CHECK: PASS — First published
+    CHECK: PASS — Second title
+    CHECK: PASS — Second URL
+    CHECK: PASS — HTML stripped
+  -> PASS  (0.00s)
+
+--- SQLite + FTS5 database ---
+    Testing SQLite + FTS5 database:
+    CHECK: PASS — Tables created
+    CHECK: PASS — Subscription inserted
+    CHECK: PASS — Stored 2 items (1 skipped)
+    CHECK: PASS — Duplicates ignored
+    CHECK: PASS — FTS5 'transformers' → 1 result
+    CHECK: PASS — FTS5 'Python' → 1 result
+    CHECK: PASS — FTS5 'nonexistent' → 0 results
+    CHECK: PASS — Cascade delete
+  -> PASS  (0.10s)
+
+
+======================================================================
+  LIVE SOURCE TESTS (network)
+======================================================================
+
+--- News RSS — BBC News ---
+    Source: BBC News RSS
+    Items fetched: 39
+    Sample: Government abandons plans to delay 30 council elections
+    CHECK: PASS — ≥ 5 items
+    CHECK: PASS — All have titles
+    CHECK: PASS — All have URLs
+    CHECK: PASS — URLs are HTTP(S)
+  -> PASS  (0.31s)
+
+--- Reddit — r/technology ---
+    Source: Reddit r/technology
+    Items fetched: 25
+    CHECK: PASS — ≥ 5 items
+    CHECK: PASS — All have titles
+    CHECK: PASS — All have URLs
+  -> PASS  (0.80s)
+
+--- Hacker News — Top Stories ---
+    Source: Hacker News top stories
+    Items fetched: 5
+    Sample: Study: Self-generated Agent Skills are useless
+    CHECK: PASS — Got 5 stories
+    CHECK: PASS — All have titles
+    CHECK: PASS — All have URLs
+    CHECK: PASS — All have authors
+    CHECK: PASS — Metadata has score
+    CHECK: PASS — Metadata has comments
+  -> PASS  (0.76s)
+
+--- GitHub — Releases ---
+    Source: GitHub anthropics/anthropic-sdk-python
+    Items fetched: 10
+    Latest: v0.79.0
+    CHECK: PASS — ≥ 1 release
+    CHECK: PASS — All have titles
+    CHECK: PASS — All have URLs
+    CHECK: PASS — URLs point to GitHub
+  -> PASS  (0.57s)
+
+--- arXiv — cs.AI Papers ---
+    Source: arXiv cs.AI
+    Items fetched: 5
+    Sample: Semantic Chunking and the Entropy of Natural Language
+    CHECK: PASS — Got papers
+    CHECK: PASS — All have titles
+    CHECK: PASS — All have URLs
+    CHECK: PASS — URLs contain arxiv
+    CHECK: PASS — Has abstracts
+  -> PASS  (0.30s)
+
+--- YouTube — 3Blue1Brown ---
+    Source: YouTube 3Blue1Brown
+    Items fetched: 15
+    Latest: Solution to the ladybug clock puzzle
+    CHECK: PASS — Got videos
+    CHECK: PASS — All have titles
+    CHECK: PASS — All have URLs
+    CHECK: PASS — URLs are YouTube
+    CHECK: PASS — Metadata has video_url
+  -> PASS  (0.43s)
+
+--- Podcast — Lex Fridman ---
+    Source: Lex Fridman Podcast
+    Items fetched: 492
+    Latest: #491 – OpenClaw: The Viral AI Agent that Broke the Internet – Peter Steinberger
+    CHECK: PASS — Got episodes
+    CHECK: PASS — All have titles
+    CHECK: PASS — Has audio URLs
+  -> PASS  (2.20s)
+
+
+======================================================================
+  END-TO-END MCP TOOL TEST
+======================================================================
+
+--- Full feed workflow ---
+    Full MCP tool workflow: subscribe → check → search → get → unsubscribe
+    CHECK: PASS — Subscribe news/bbc
+    Output: Subscribed to BBC News (news).
+Run check_feeds to fetch content.
+    CHECK: PASS — Subscribe hackernews/top
+    CHECK: PASS — Duplicate detected
+    CHECK: PASS — Invalid type rejected
+    CHECK: PASS — Both listed
+    Output: Feed Check Complete
+
+  BBC News: 37 new items
+  Hacker News (top): 29 new items
+
+Total: 66 new items across 2 sources
+    CHECK: PASS — Feeds checked
+    CHECK: PASS — News items returned
+    CHECK: PASS — HN items returned (limit 3)
+    CHECK: PASS — Search returned results
+    CHECK: PASS — Empty search handled
+    CHECK: PASS — Unsubscribed
+    CHECK: PASS — BBC removed
+    CHECK: PASS — Nonexistent handled
+  -> PASS  (1.36s)
+
+
+======================================================================
+  NEW TOOLS — LOCAL FILE PROCESSING
+======================================================================
+
+--- transcribe_local — local audio/video ---
+    Testing local file transcription:
+    CHECK: PASS — File not found
+    CHECK: PASS — Invalid model size handled
+    CHECK: PASS — Non-audio file handled
+    Output: Transcription failed: [Errno 1094995529] Invalid data found when processing inpu
+  -> PASS  (0.91s)
+
+--- convert_media — FFmpeg conversion ---
+    Testing media format conversion:
+    CHECK: PASS — File not found
+    CHECK: PASS — WAV→MP3 conversion
+    Output: Converted successfully.
+Output: /tmp/tmp7fadpzxb.mp3
+Size: 0.0 MB
+  -> PASS  (0.27s)
+
+--- read_document — PDF/DOCX/text/HTML ---
+    Testing document reader:
+    CHECK: PASS — File not found
+    CHECK: PASS — README.md read
+    CHECK: PASS — TOML read
+    CHECK: PASS — Unsupported format
+    CHECK: PASS — DOCX parsed
+    DOCX output: Document: tmpi6mfj_uc.docx (0 KB)
+
+Hello from DOCX!
+Second paragraph.
+    CHECK: PASS — HTML stripped
+    CHECK: PASS — CSV read
+  -> PASS  (0.01s)
+
+
+======================================================================
+  NEW TOOLS — EMAIL
+======================================================================
+
+--- fetch_emails — IMAP email pull ---
+    Testing email fetch:
+    CHECK: PASS — Gmail detected
+    CHECK: PASS — Outlook detected
+    CHECK: PASS — Yahoo detected
+    CHECK: PASS — Unknown domain handled
+    CHECK: PASS — Bad auth handled
+    Auth error: Authentication failed for test@gmail.com.
+For Gmail, make sure you're using an A
+  -> PASS  (0.27s)
+
+
+======================================================================
+  NEW TOOLS — WEB UTILITIES
+======================================================================
+
+--- paste_text — dpaste.org pastebin ---
+    Testing pastebin posting:
+    CHECK: PASS — Empty content handled
+    CHECK: PASS — Paste created
+    Output: Paste created: https://paste.rs/HMIO7
+Expires in 7 days.
+  -> PASS  (0.87s)
+
+--- shorten_url — TinyURL ---
+    Testing URL shortener:
+    CHECK: PASS — URL shortened
+    Output: Short URL: https://tinyurl.com/26fsy5zq
+Original: https://github.com/VincentKaufmann/noapi-google-search-mcp
+  -> PASS  (0.08s)
+
+--- generate_qr — QR code generation ---
+    Testing QR code generation:
+    CHECK: PASS — QR code generated
+    Output: QR code saved to: /tmp/tmpkzdbtczy.png
+Data: https://example.com
+    File size: 6.5 KB
+    CHECK: PASS — Empty data handled
+  -> PASS  (0.08s)
+
+--- archive_webpage — Wayback Machine ---
+    Testing webpage archiving:
+    CHECK: PASS — Archive response
+    Output: Archived: https://web.archive.org/web/*/https://example.com
+Original: https://example.com
+  -> PASS  (7.01s)
+
+--- wikipedia — article lookup ---
+    Testing Wikipedia lookup:
+    CHECK: PASS — Python article found
+    Output preview: Wikipedia: Python (programming language)
+(General-purpose programming language)
+
+Python is a high-level, general-purpose programming language. Its des...
+    CHECK: PASS — Missing article handled
+    CHECK: PASS — Sentence limit works
+    Summary: Wikipedia: Albert Einstein
+(German-born theoretical physicist (1879–1955))
+
+Albert Einstein was a German-born theoretica...
+    CHECK: PASS — Spanish Wikipedia
+  -> PASS  (2.21s)
+
+
+======================================================================
+  NEW TOOLS — CLOUD STORAGE
+======================================================================
+
+--- upload_to_s3 — MinIO/S3 upload ---
+    Testing S3/MinIO upload:
+    CHECK: PASS — File not found
+    CHECK: PASS — Missing creds handled
+    Output: Missing credentials. Provide access_key/secret_key or set env vars:
+  export AWS
+  -> PASS  (0.00s)
+
+
+======================================================================
+  AUTO-TRANSCRIPTION WIRING
+======================================================================
+
+--- YouTube auto-transcription ---
+    Testing auto-transcription wiring:
+    CHECK: PASS — Empty items → empty string
+    CHECK: PASS — Non-YouTube → empty string
+    CHECK: PASS — Cached video skipped
+  -> PASS  (0.24s)
+
+
+======================================================================
+  SUMMARY
+======================================================================
+
+  Total test groups: 24
+  Passed:            24
+  Failed:            0
+  Total checks:      120 (120 passed, 0 failed)
+  Pass rate:         100%
+
+  ALL TESTS PASSED
+
+  Individual results:
+    PASS |  0.00s | Tool count and registration
+    PASS |  0.00s | _strip_html — HTML tag removal
+    PASS |  0.00s | _parse_rss_atom — RSS 2.0 parsing
+    PASS |  0.00s | _parse_rss_atom — Atom parsing
+    PASS |  0.10s | SQLite + FTS5 database
+    PASS |  0.31s | News RSS — BBC News
+    PASS |  0.80s | Reddit — r/technology
+    PASS |  0.76s | Hacker News — Top Stories
+    PASS |  0.57s | GitHub — Releases
+    PASS |  0.30s | arXiv — cs.AI Papers
+    PASS |  0.43s | YouTube — 3Blue1Brown
+    PASS |  2.20s | Podcast — Lex Fridman
+    PASS |  1.36s | Full feed workflow
+    PASS |  0.91s | transcribe_local — local audio/video
+    PASS |  0.27s | convert_media — FFmpeg conversion
+    PASS |  0.01s | read_document — PDF/DOCX/text/HTML
+    PASS |  0.27s | fetch_emails — IMAP email pull
+    PASS |  0.87s | paste_text — dpaste.org pastebin
+    PASS |  0.08s | shorten_url — TinyURL
+    PASS |  0.08s | generate_qr — QR code generation
+    PASS |  7.01s | archive_webpage — Wayback Machine
+    PASS |  2.21s | wikipedia — article lookup
+    PASS |  0.00s | upload_to_s3 — MinIO/S3 upload
+    PASS |  0.24s | YouTube auto-transcription
+         | 18.78s | TOTAL
