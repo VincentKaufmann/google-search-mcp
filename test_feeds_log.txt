@@ -1,0 +1,293 @@
+
+======================================================================
+  Feed Subscription System — Detailed Test Log
+======================================================================
+Date: 2026-02-16 23:42:17
+Python: 3.12.3
+Platform: linux
+
+======================================================================
+  UNIT TESTS
+======================================================================
+
+--- _strip_html — HTML tag removal ---
+    Input: '<p>Hello <b>world</b></p>'
+    Expected: 'Hello world'
+    Got: 'Hello world'
+    Match: YES
+
+    Input: ''
+    Expected: ''
+    Got: ''
+    Match: YES
+
+    Input: 'plain text'
+    Expected: 'plain text'
+    Got: 'plain text'
+    Match: YES
+
+    Input: "<a href='x'>link</a> and <em>emphasis</em>"
+    Expected: 'link and emphasis'
+    Got: 'link and emphasis'
+    Match: YES
+
+    Input: '<div><span>nested</span></div>'
+    Expected: 'nested'
+    Got: 'nested'
+    Match: YES
+
+  -> PASS  (0.00s)
+
+--- _parse_rss_atom — RSS 2.0 feed parsing ---
+    Input: RSS 2.0 XML with 2 items (one with HTML description)
+    Item count == 2: PASS
+    First title correct: PASS
+    First URL correct: PASS
+    First content correct: PASS
+    First pubDate present: PASS
+    Second title correct: PASS
+    HTML stripped from content: PASS
+  -> PASS  (0.00s)
+
+--- _parse_rss_atom — Atom feed parsing ---
+    Input: Atom XML with 2 entries (one with <summary>, one with <content>)
+    Item count == 2: PASS
+    First title: PASS
+    First URL (rel=alternate): PASS
+    First author: PASS
+    First published: PASS
+    Second title: PASS
+    Second URL (no rel): PASS
+    Second content (HTML stripped): PASS
+  -> PASS  (0.00s)
+
+--- SQLite + FTS5 database operations ---
+    Database created: /tmp/test_feeds_unit.db
+    Tables found: ['subscriptions', 'sqlite_sequence', 'feed_items', 'feed_items_fts', 'feed_items_fts_data', 'feed_items_fts_idx', 'feed_items_fts_docsize', 'feed_items_fts_config']
+    Subscription inserted: id=1, name=Unit Test Feed
+    Input items: 3 items (1 without URL, should be skipped)
+    New items stored: 2
+    Duplicate insert count: 0 (expected 0)
+    FTS5 search for 'transformers': 1 results
+    FTS5 search for 'Python': 1 results
+    FTS5 search for 'nonexistent': 0 results (expected 0)
+    Items after subscription delete (cascade): 0 (expected 0)
+  -> PASS  (0.08s)
+
+======================================================================
+  LIVE SOURCE TESTS (network)
+======================================================================
+
+--- News RSS — BBC News ---
+    Feature: Fetch and parse live RSS feed from a major news outlet
+    Source: BBC News (http://feeds.bbci.co.uk/news/rss.xml)
+    Method: _check_source_rss() -> _fetch_url_bytes() -> _parse_rss_atom()
+    Items fetched: 38
+    Sample item title: Government abandons plans to delay 30 council elections
+    Sample item URL: https://www.bbc.com/news/articles/c70ne31d884o?at_medium=RSS&at_campaign=rss
+    Sample item published: Mon, 16 Feb 2026 18:07:59 GMT
+    Sample content preview: All English elections will now go ahead as originally planned after Reform UK brought a legal challenge over the decision to delay some polls.
+    At least 5 items: PASS
+    All items have titles: PASS
+    All items have URLs: PASS
+    URLs are HTTP(S): PASS
+  -> PASS  (0.36s)
+
+--- Reddit — r/technology via RSS ---
+    Feature: Fetch subreddit posts via Reddit's native RSS endpoint
+    Source: r/technology (https://www.reddit.com/r/technology/.rss)
+    Method: _check_source_reddit('technology') -> Atom feed parsing
+    Items fetched: 25
+    Sample post title: Hi! We're 404 Media's Jason Koebler and Joseph Cox. AMA (us) about the tech ICE is using, Flock and the state of surveillance in the US on Feb. 4, 12 pm ET
+    Sample post URL: https://www.reddit.com/r/technology/comments/1qv9y8j/hi_were_404_medias_jason_koebler_and_joseph_cox/
+    Sample post author: /u/404mediaco
+    At least 5 items: PASS
+    All items have titles: PASS
+    All items have URLs: PASS
+  -> PASS  (0.82s)
+
+--- Hacker News — Top Stories via Firebase API ---
+    Feature: Fetch top stories from HN public API with metadata
+    Source: https://hacker-news.firebaseio.com/v0/topstories.json
+    Method: _check_source_hackernews('top', limit=5) -> parallel story fetches
+    Items fetched: 5
+    Sample title: 14-year-old Miles Wu folded origami pattern that holds 10k times its own weight
+    Sample URL: https://www.smithsonianmag.com/innovation/this-14-year-old-is-using-origami-to-design-emergency-shelters-that-are-sturdy-cost-efficient-and-easy-to-deploy-180988179/
+    Sample author: bookofjoe
+    Sample score: 261
+    Sample comments: 46
+    Sample published: 2026-02-16T18:41:50+00:00
+    Got 5 stories: PASS
+    All have titles: PASS
+    All have URLs: PASS
+    All have authors: PASS
+    Metadata has score: PASS
+    Metadata has comments: PASS
+  -> PASS  (0.81s)
+
+--- GitHub — Releases via Atom Feed ---
+    Feature: Fetch release notes from a public GitHub repository
+    Source: anthropics/anthropic-sdk-python (releases.atom)
+    Method: _check_source_github('anthropics/anthropic-sdk-python')
+    Items fetched: 10
+    Latest release: v0.79.0
+    Release URL: https://github.com/anthropics/anthropic-sdk-python/releases/tag/v0.79.0
+    Content preview: 0.79.0 (2026-02-07) Full Changelog: v0.78.0...v0.79.0 Features api: enabling fast-mode in claude-opus-4-6 ( 5953ba7 ) Bug Fixes pass speed parameter t
+    At least 1 release: PASS
+    All have titles: PASS
+    All have URLs: PASS
+    URLs point to GitHub: PASS
+  -> PASS  (0.74s)
+
+--- arXiv — cs.AI Papers via API ---
+    Feature: Fetch recent papers from arXiv by category
+    Source: http://export.arxiv.org/api/query?search_query=cat:cs.AI
+    Method: _check_source_arxiv('cs.AI', max_results=5)
+    Items fetched: 5
+    Sample paper title: Semantic Chunking and the Entropy of Natural Language
+    Sample paper URL: https://arxiv.org/abs/2602.13194v1
+    Sample author: Weishun Zhong
+    Abstract preview: The entropy rate of printed English is famously estimated to be about one bit per character, a benchmark that modern large language models (LLMs) have only recently approached. This entropy rate impli
+    Got papers: PASS
+    All have titles: PASS
+    All have URLs: PASS
+    URLs point to arXiv: PASS
+    Content has abstracts: PASS
+  -> PASS  (0.41s)
+
+--- YouTube — Channel Feed (3Blue1Brown) ---
+    Feature: Fetch recent videos from a YouTube channel RSS feed
+    Source: 3Blue1Brown (UCYO_jab_esuFRV4b17AJtAw)
+    Feed URL: https://www.youtube.com/feeds/videos.xml?channel_id=UCYO_jab_esuFRV4b17AJtAw
+    Method: _check_source_youtube(feed_url)
+    Items fetched: 15
+    Latest video title: Solution to the ladybug clock puzzle
+    Video URL: https://www.youtube.com/shorts/7gG91SZwBoE
+    Channel/author: 3Blue1Brown
+    Published: 2026-02-16T14:08:37+00:00
+    Got videos: PASS
+    All have titles: PASS
+    All have URLs: PASS
+    URLs are YouTube: PASS
+    Metadata has video_url: PASS
+  -> PASS  (0.28s)
+
+--- Podcast — Lex Fridman RSS Feed ---
+    Feature: Fetch podcast episodes with audio URLs and metadata
+    Source: Lex Fridman Podcast (https://lexfridman.com/feed/podcast/)
+    Method: _check_source_podcast(feed_url)
+    Items fetched: 492
+    Latest episode: #491 – OpenClaw: The Viral AI Agent that Broke the Internet – Peter Steinberger
+    Episode URL: https://lexfridman.com/peter-steinberger/?utm_source=rss&utm_medium=rss&utm_campaign=peter-steinberger
+    Author: Lex Fridman
+    Published: Thu, 12 Feb 2026 03:10:39 +0000
+    Audio URL: https://media.blubrry.com/takeituneasy/ins.blubrry.com/takeituneasy/lex_ai_peter_steinberger.mp3
+    Duration: N/A
+    Got episodes: PASS
+    All have titles: PASS
+    Have audio URLs in metadata: PASS
+  -> PASS  (2.15s)
+
+======================================================================
+  END-TO-END MCP TOOL TEST
+======================================================================
+
+--- End-to-End: subscribe -> check -> search -> get -> unsubscribe ---
+    Feature: Full MCP tool workflow using real network data
+    Method: Calls each MCP tool function in sequence with assertions
+
+    Step 1: subscribe()
+    Input: subscribe("news", "bbc")
+    Output: Subscribed to BBC News (news).
+            Run check_feeds to fetch content.
+    CHECK: PASS — subscription created
+    Input: subscribe("hackernews", "top")
+    Output: Subscribed to Hacker News (top) (hackernews).
+            Run check_feeds to fetch content.
+    Input: subscribe("news", "bbc") — duplicate
+    Output: Already subscribed to BBC News (news).
+    CHECK: PASS — duplicate detected
+    Input: subscribe("invalid", "test")
+    Output: Invalid source type 'invalid'. Must be one of: news, reddit, hackernews, github, arxiv, youtube, podcast, twitter
+    CHECK: PASS — invalid type rejected
+
+    Step 2: list_subscriptions()
+    Output: Active Subscriptions (2 total)
+            
+            
+              HACKERNEWS
+                Hacker News (top) — 0 items, last checked: never
+            
+              NEWS
+                BBC News — 0 items, last checked: never
+    CHECK: PASS — both subscriptions listed
+
+    Step 3: check_feeds()
+    Output: Feed Check Complete
+            
+              BBC News: 36 new items
+              Hacker News (top): 29 new items
+            
+            Total: 65 new items across 2 sources
+    CHECK: PASS — feeds checked successfully
+    CHECK: PASS — new items found and stored
+
+    Step 4: get_feed_items()
+    Input: get_feed_items(source_type="news")
+    Output preview: Recent Feed Items (20 items)
+                    
+                    1. [news/BBC News] BBC News app
+                       Published: Wed, 30 Apr 2025 14:04:28 GMT
+                       URL: https://www.bbc.co.uk/news/10628994?at_medium=RSS&at_campaign=rss
+                       Top stories, breaking news, live reporting, and follow news topics that match your interests
+                    
+                    2. [news/BBC News] Acto
+    CHECK: PASS — news items returned
+    Input: get_feed_items(source_type="hackernews", limit=3)
+    Output preview: Recent Feed Items (3 items)
+                    
+                    1. [hackernews/Hacker News (top)] 10 years building vertical software: are we cooked?
+                       Published: 2026-02-16T21:48:00+00:00
+                       URL: https://twitter.com/nicbstme/status/2023501562480644501
+                    
+                    2. [hackernews/Hacker News (top)] Study: Self-generated Agent Skills are useless
+
+    Step 5: search_feeds()
+    Input: search_feeds("the") — common word, should match
+    Output preview: Feed Search: "the" (20 results)
+                    
+                    1. [news/BBC News] Will the US Supreme Court stand up to Trump?
+                       Published: Fri, 13 Feb 2026 15:15:00 GMT
+                       URL: https://www.bbc.co.uk/sounds/play/w3ct8bz4?at_medium=RSS&at_campaign=rss
+                       Or will the court expand the US president’s power?
+                    
+                    2. [news/BBC News] How 
+    CHECK: PASS — search returned results
+    Input: search_feeds("xyznonexistent12345") — should find nothing
+    Output: No results found for: "xyznonexistent12345"
+    CHECK: PASS — empty result handled correctly
+
+    Step 6: unsubscribe()
+    Input: unsubscribe("news", "bbc")
+    Output: Unsubscribed from BBC News. Stored content removed.
+    CHECK: PASS — unsubscribed and content removed
+    Subscriptions after unsubscribe: Active Subscriptions (1 total)
+                                     
+                                     
+                                       HACKERNEWS
+                                         Hacker News (top) — 29 items, last checked: 2026-02-16T22:42
+    CHECK: PASS — BBC removed from subscriptions
+    Input: unsubscribe("news", "nonexistent_feed")
+    Output: No subscription found for 'nonexistent_feed'.
+    CHECK: PASS — non-existent handled correctly
+  -> PASS  (1.43s)
+
+======================================================================
+  SUMMARY
+======================================================================
+  Total tests:  12
+  Passed:       12
+  Failed:       0
+  Pass rate:    100%
+
+  ALL TESTS PASSED

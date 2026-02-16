@@ -27,14 +27,28 @@ Tools provided:
     - extract_video_clip: Extract a video clip by topic
     - list_images: List image files in a directory for use with google_lens
     - visit_page: Fetch a URL and return its text content
+    - subscribe: Subscribe to content sources (news RSS, Reddit, HN, GitHub, arXiv, YouTube, podcasts, Twitter/X)
+    - unsubscribe: Remove a subscription and its stored content
+    - list_subscriptions: List all active feed subscriptions
+    - check_feeds: Fetch new content from all or specific subscriptions
+    - search_feeds: Full-text search across all stored feed content
+    - get_feed_items: Get recent items from feed subscriptions
 """
 
 import asyncio
 import hashlib
+import imaplib
 import json
 import os
 import re
-from datetime import datetime
+import sqlite3
+import subprocess
+import urllib.request
+import xml.etree.ElementTree as ET
+import zipfile
+from datetime import datetime, timezone
+from email import policy as email_policy
+from email.parser import BytesParser as EmailParser
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -3879,3 +3893,2171 @@ async def visit_page(url: str) -> str:
         url: The full URL to visit and extract text from.
     """
     return await _fetch_page_text(url)
+
+
+# ---------------------------------------------------------------------------
+# Local file transcription — audio & video files directly, no download
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def transcribe_local(
+    file_path: str,
+    model_size: str = "tiny",
+    language: str = "",
+    ctx: Context = None,
+) -> str:
+    """Transcribe a local audio or video file with timestamps using Whisper.
+
+    Supports any format FFmpeg can decode: mp3, wav, m4a, flac, ogg, aac,
+    mp4, mkv, webm, avi, mov, wma, opus, and more.
+
+    Results are cached — repeat requests for the same file are instant.
+
+    Sample prompts that trigger this tool:
+        - "Transcribe this recording: /path/to/meeting.mp3"
+        - "What's said in this video? /path/to/lecture.mp4"
+        - "Transcribe ~/Downloads/interview.wav"
+        - "Transcribe the audio file on my desktop"
+
+    Args:
+        file_path: Absolute path to the audio or video file.
+        model_size: Whisper model size (tiny/base/small/medium/large). Default: tiny.
+        language: Language code (e.g. "en", "de", "fr"). Auto-detected if empty.
+    """
+    file_path = os.path.expanduser(file_path)
+    if not os.path.isfile(file_path):
+        return f"File not found: {file_path}"
+
+    valid_sizes = ("tiny", "base", "small", "medium", "large")
+    if model_size not in valid_sizes:
+        model_size = "tiny"
+
+    # Disk cache keyed on absolute path + model size
+    os.makedirs(TRANSCRIPT_CACHE_DIR, exist_ok=True)
+    abs_path = os.path.abspath(file_path)
+    cache_path = _transcript_cache_path(abs_path, model_size)
+    if os.path.isfile(cache_path):
+        try:
+            with open(cache_path) as f:
+                return json.load(f)["transcript"] + "\n\n(cached result)"
+        except Exception:
+            pass
+
+    try:
+        from faster_whisper import WhisperModel  # noqa: F401
+    except ImportError:
+        return "faster-whisper is required. Install with: pip install faster-whisper"
+
+    if ctx:
+        await ctx.report_progress(
+            progress=0, total=100, message="Transcribing (this may take a minute)...",
+        )
+
+    try:
+        whisper_result = await asyncio.to_thread(
+            _transcribe_audio, file_path, model_size, language,
+        )
+    except Exception as e:
+        return f"Transcription failed: {e}"
+
+    segments = whisper_result["segments"]
+    if not segments:
+        return f"No speech detected in: {os.path.basename(file_path)}"
+
+    if ctx:
+        await ctx.report_progress(progress=100, total=100, message="Done!")
+
+    filename = os.path.basename(file_path)
+    full_lines = [
+        "Transcript",
+        f"File: {filename}",
+        f"Language: {whisper_result['language']} "
+        f"(confidence: {whisper_result['language_probability']:.0%})",
+        "",
+        "--- Transcript ---",
+    ]
+    for seg in segments:
+        start = _format_timestamp(seg["start"])
+        end = _format_timestamp(seg["end"])
+        full_lines.append(f"[{start} - {end}] {seg['text']}")
+
+    full_lines.append("")
+    full_lines.append("--- End of Transcript ---")
+    full_lines.append(f"Total segments: {len(segments)}")
+
+    full_transcript = "\n".join(full_lines)
+
+    try:
+        with open(cache_path, "w") as f:
+            json.dump({"url": abs_path, "transcript": full_transcript}, f)
+    except Exception:
+        pass
+
+    return full_transcript
+
+
+# ---------------------------------------------------------------------------
+# Media format conversion — FFmpeg wrapper
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def convert_media(
+    input_path: str,
+    output_format: str,
+    output_path: str = "",
+    quality: str = "medium",
+    ctx: Context = None,
+) -> str:
+    """Convert audio or video files between formats using FFmpeg.
+
+    Supports all FFmpeg formats: mp3, wav, m4a, flac, ogg, aac, opus,
+    mp4, mkv, webm, avi, mov, gif, and more.
+
+    Common conversions:
+        - Video to audio: mp4 -> mp3
+        - Audio formats: wav -> mp3, flac -> m4a
+        - Video formats: mkv -> mp4, mp4 -> webm
+        - Video to GIF: mp4 -> gif
+
+    Sample prompts that trigger this tool:
+        - "Convert this video to mp3: /path/to/video.mp4"
+        - "Convert recording.wav to mp3"
+        - "Make a gif from /path/to/clip.mp4"
+        - "Convert this to m4a: /path/to/song.flac"
+        - "Convert my video to webm"
+
+    Args:
+        input_path: Path to the input file.
+        output_format: Target format (e.g. "mp3", "mp4", "wav", "gif").
+        output_path: Optional output file path. Default: same name, new extension.
+        quality: "low", "medium", or "high". Default: medium.
+    """
+    input_path = os.path.expanduser(input_path)
+    if not os.path.isfile(input_path):
+        return f"File not found: {input_path}"
+
+    # Check ffmpeg availability
+    try:
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            ["ffmpeg", "-version"],
+            capture_output=True, timeout=5,
+        )
+        if proc.returncode != 0:
+            return (
+                "FFmpeg not found. Install with:\n"
+                "  Linux: sudo apt install ffmpeg\n"
+                "  Mac: brew install ffmpeg\n"
+                "  Windows: choco install ffmpeg"
+            )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return (
+            "FFmpeg not found. Install with:\n"
+            "  Linux: sudo apt install ffmpeg\n"
+            "  Mac: brew install ffmpeg\n"
+            "  Windows: choco install ffmpeg"
+        )
+
+    output_format = output_format.lower().strip().lstrip(".")
+
+    if not output_path:
+        base = os.path.splitext(input_path)[0]
+        output_path = f"{base}.{output_format}"
+        if os.path.abspath(output_path) == os.path.abspath(input_path):
+            output_path = f"{base}_converted.{output_format}"
+    else:
+        output_path = os.path.expanduser(output_path)
+
+    quality_presets = {
+        "low": {"ab": "96k", "crf": "28"},
+        "medium": {"ab": "192k", "crf": "23"},
+        "high": {"ab": "320k", "crf": "18"},
+    }
+    q = quality_presets.get(quality, quality_presets["medium"])
+
+    audio_fmts = {"mp3", "wav", "m4a", "flac", "ogg", "aac", "wma", "opus"}
+
+    cmd = ["ffmpeg", "-i", input_path, "-y"]
+
+    if output_format in audio_fmts:
+        cmd.extend(["-vn", "-b:a", q["ab"]])
+    elif output_format == "gif":
+        cmd.extend(["-vf", "fps=10,scale=480:-1:flags=lanczos", "-loop", "0"])
+    else:
+        cmd.extend(["-crf", q["crf"], "-preset", "fast"])
+
+    cmd.append(output_path)
+
+    if ctx:
+        await ctx.report_progress(progress=0, total=100, message="Converting...")
+
+    try:
+        proc = await asyncio.to_thread(
+            subprocess.run, cmd,
+            capture_output=True, text=True, timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        return "Conversion timed out (10 minute limit)."
+
+    if proc.returncode != 0:
+        err = proc.stderr[-500:] if proc.stderr else "Unknown error"
+        return f"FFmpeg error:\n{err}"
+
+    if not os.path.isfile(output_path):
+        return "Conversion failed — output file was not created."
+
+    size_mb = os.path.getsize(output_path) / (1024 * 1024)
+
+    if ctx:
+        await ctx.report_progress(progress=100, total=100, message="Done!")
+
+    return (
+        f"Converted successfully.\n"
+        f"Output: {output_path}\n"
+        f"Size: {size_mb:.1f} MB"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Document reader — PDF, DOCX, plain text, HTML
+# ---------------------------------------------------------------------------
+
+
+def _read_pdf_text(file_path: str) -> str:
+    """Extract text from a PDF. Tries pdftotext first, falls back to OCR."""
+    # Attempt 1: pdftotext (poppler-utils) — fast, accurate for text PDFs
+    try:
+        proc = subprocess.run(
+            ["pdftotext", "-layout", file_path, "-"],
+            capture_output=True, text=True, timeout=60,
+        )
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip()
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    # Attempt 2: OCR via our existing pipeline (for scanned PDFs)
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        import cv2
+        import tempfile
+
+        # Convert PDF pages to images via pdftoppm
+        with tempfile.TemporaryDirectory() as tmpdir:
+            img_proc = subprocess.run(
+                ["pdftoppm", "-png", "-r", "200", file_path, os.path.join(tmpdir, "page")],
+                capture_output=True, timeout=120,
+            )
+            if img_proc.returncode != 0:
+                return ""
+
+            ocr = RapidOCR()
+            all_text: list[str] = []
+            for img_file in sorted(Path(tmpdir).glob("*.png")):
+                result, _ = ocr(str(img_file))
+                if result:
+                    page_text = "\n".join(line[1] for line in result)
+                    all_text.append(page_text)
+
+            if all_text:
+                return "\n\n--- Page Break ---\n\n".join(all_text)
+    except Exception:
+        pass
+
+    return ""
+
+
+def _read_docx_text(file_path: str) -> str:
+    """Extract text from a .docx file using stdlib zipfile + XML parsing."""
+    try:
+        with zipfile.ZipFile(file_path) as z:
+            xml_data = z.read("word/document.xml")
+        root = ET.fromstring(xml_data)
+        ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        paragraphs: list[str] = []
+        for para in root.iter(f"{{{ns}}}p"):
+            texts: list[str] = []
+            for run in para.iter(f"{{{ns}}}t"):
+                if run.text:
+                    texts.append(run.text)
+            if texts:
+                paragraphs.append("".join(texts))
+        return "\n".join(paragraphs)
+    except Exception as e:
+        return f"Failed to read DOCX: {e}"
+
+
+@mcp.tool()
+async def read_document(
+    file_path: str,
+    ctx: Context = None,
+) -> str:
+    """Read and extract text from documents — PDF, Word, and plain text files.
+
+    Supported formats:
+        - PDF (.pdf) — text extraction with pdftotext, OCR fallback for scans
+        - Word (.docx) — paragraph and table text extraction (no extra deps)
+        - Plain text (.txt, .md, .csv, .log, .json, .xml, .yaml, .yml, .ini, .cfg, .toml)
+        - HTML (.html, .htm) — strips tags, returns clean text
+
+    Sample prompts that trigger this tool:
+        - "Read this PDF: /path/to/document.pdf"
+        - "What does this document say? /path/to/report.docx"
+        - "Extract text from /path/to/scanned.pdf"
+        - "Read the CSV at /path/to/data.csv"
+        - "Show me the contents of config.yaml"
+
+    Args:
+        file_path: Absolute path to the document file.
+    """
+    file_path = os.path.expanduser(file_path)
+    if not os.path.isfile(file_path):
+        return f"File not found: {file_path}"
+
+    ext = Path(file_path).suffix.lower()
+    filename = os.path.basename(file_path)
+    size_kb = os.path.getsize(file_path) / 1024
+
+    if ctx:
+        await ctx.report_progress(progress=0, total=100, message=f"Reading {filename}...")
+
+    # --- PDF ---
+    if ext == ".pdf":
+        text = await asyncio.to_thread(_read_pdf_text, file_path)
+        if not text:
+            return (
+                f"Could not extract text from {filename}.\n"
+                "For text PDFs, install poppler-utils: sudo apt install poppler-utils\n"
+                "For scanned PDFs, ensure rapidocr-onnxruntime is installed."
+            )
+        return f"Document: {filename} ({size_kb:.0f} KB)\n\n{text}"
+
+    # --- DOCX ---
+    if ext == ".docx":
+        text = await asyncio.to_thread(_read_docx_text, file_path)
+        return f"Document: {filename} ({size_kb:.0f} KB)\n\n{text}"
+
+    # --- HTML ---
+    if ext in (".html", ".htm"):
+        try:
+            raw = await asyncio.to_thread(Path(file_path).read_text, "utf-8")
+        except UnicodeDecodeError:
+            raw = await asyncio.to_thread(
+                Path(file_path).read_text, "latin-1",
+            )
+        text = _strip_html(raw)
+        return f"Document: {filename} ({size_kb:.0f} KB)\n\n{text}"
+
+    # --- Plain text formats ---
+    plain_exts = {
+        ".txt", ".md", ".csv", ".log", ".json", ".xml",
+        ".yaml", ".yml", ".ini", ".cfg", ".toml", ".conf",
+        ".sh", ".bash", ".zsh", ".py", ".js", ".ts", ".go",
+        ".rs", ".c", ".cpp", ".h", ".java", ".kt", ".rb",
+        ".sql", ".r", ".m", ".swift", ".env",
+    }
+    if ext in plain_exts:
+        try:
+            raw = await asyncio.to_thread(Path(file_path).read_text, "utf-8")
+        except UnicodeDecodeError:
+            raw = await asyncio.to_thread(
+                Path(file_path).read_text, "latin-1",
+            )
+        # Truncate very large files to avoid flooding the LLM context
+        if len(raw) > 100_000:
+            raw = raw[:100_000] + f"\n\n... (truncated at 100 KB, file is {size_kb:.0f} KB)"
+        return f"Document: {filename} ({size_kb:.0f} KB)\n\n{raw}"
+
+    return f"Unsupported file format: {ext}. Supported: .pdf, .docx, .html, .txt, .md, .csv, .json, .xml, .yaml, and more."
+
+
+# ---------------------------------------------------------------------------
+# Email — IMAP fetch (stdlib, works with Gmail/Outlook/Yahoo/any IMAP)
+# ---------------------------------------------------------------------------
+
+_IMAP_SERVERS: dict[str, str] = {
+    "gmail.com": "imap.gmail.com",
+    "googlemail.com": "imap.gmail.com",
+    "outlook.com": "imap-mail.outlook.com",
+    "hotmail.com": "imap-mail.outlook.com",
+    "live.com": "imap-mail.outlook.com",
+    "yahoo.com": "imap.mail.yahoo.com",
+    "icloud.com": "imap.mail.me.com",
+    "me.com": "imap.mail.me.com",
+    "aol.com": "imap.aol.com",
+    "zoho.com": "imap.zoho.com",
+    "protonmail.com": "127.0.0.1",  # needs ProtonMail Bridge
+    "proton.me": "127.0.0.1",
+}
+
+
+@mcp.tool()
+async def fetch_emails(
+    email_address: str,
+    password: str,
+    imap_server: str = "",
+    folder: str = "INBOX",
+    search: str = "UNSEEN",
+    limit: int = 10,
+    ctx: Context = None,
+) -> str:
+    """Fetch emails via IMAP. Works with Gmail, Outlook, Yahoo, iCloud, and any IMAP server.
+
+    For Gmail: use an App Password (not your regular password).
+    Generate at: https://myaccount.google.com/apppasswords
+
+    For Outlook: enable IMAP in settings, use your regular password or app password.
+
+    Sample prompts that trigger this tool:
+        - "Check my email: user@gmail.com password: xxxx-xxxx-xxxx-xxxx"
+        - "Fetch unread emails from my Gmail"
+        - "Search my inbox for emails about invoice"
+        - "Get my latest 5 emails"
+        - "Show emails from sender@example.com"
+
+    Args:
+        email_address: Your email address.
+        password: Password or app password (Gmail requires app password).
+        imap_server: IMAP server hostname. Auto-detected for Gmail/Outlook/Yahoo if empty.
+        folder: Mailbox folder. Default: INBOX. Common: INBOX, Sent, Drafts, Trash, Spam.
+        search: IMAP search criteria. Default: UNSEEN (unread).
+            Examples: ALL, SEEN, UNSEEN, FROM "sender@example.com",
+            SUBJECT "keyword", SINCE "01-Jan-2024", BEFORE "01-Feb-2024".
+        limit: Maximum number of emails to fetch. Default: 10.
+    """
+    # Auto-detect IMAP server from email domain
+    if not imap_server:
+        domain = email_address.split("@")[-1].lower()
+        imap_server = _IMAP_SERVERS.get(domain, "")
+        if not imap_server:
+            return (
+                f"Cannot auto-detect IMAP server for '{domain}'.\n"
+                f"Please provide the imap_server parameter "
+                f"(e.g. 'imap.{domain}')."
+            )
+
+    def _fetch_sync() -> list[dict]:
+        mail = imaplib.IMAP4_SSL(imap_server)
+        try:
+            mail.login(email_address, password)
+            mail.select(folder, readonly=True)
+
+            _, msg_nums = mail.search(None, search)
+            ids = msg_nums[0].split()
+            if not ids:
+                return []
+
+            # Most recent first, capped at limit
+            ids = list(reversed(ids[-limit:]))
+            parser = EmailParser(policy=email_policy.default)
+
+            emails: list[dict] = []
+            for mid in ids:
+                _, data = mail.fetch(mid, "(RFC822)")
+                if not data or not data[0] or not isinstance(data[0], tuple):
+                    continue
+                msg = parser.parsebytes(data[0][1])
+
+                # Extract body — prefer plain text
+                body = ""
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        ct = part.get_content_type()
+                        if ct == "text/plain":
+                            payload = part.get_content()
+                            if isinstance(payload, str):
+                                body = payload
+                                break
+                    if not body:
+                        for part in msg.walk():
+                            ct = part.get_content_type()
+                            if ct == "text/html":
+                                payload = part.get_content()
+                                if isinstance(payload, str):
+                                    body = _strip_html(payload)
+                                    break
+                else:
+                    payload = msg.get_content()
+                    if isinstance(payload, str):
+                        ct = msg.get_content_type()
+                        body = _strip_html(payload) if ct == "text/html" else payload
+
+                emails.append({
+                    "from": str(msg.get("From", "")),
+                    "to": str(msg.get("To", "")),
+                    "subject": str(msg.get("Subject", "(no subject)")),
+                    "date": str(msg.get("Date", "")),
+                    "body": body.strip()[:2000],
+                })
+
+            return emails
+        finally:
+            try:
+                mail.logout()
+            except Exception:
+                pass
+
+    if ctx:
+        await ctx.report_progress(
+            progress=0, total=100, message=f"Connecting to {imap_server}...",
+        )
+
+    try:
+        emails = await asyncio.to_thread(_fetch_sync)
+    except imaplib.IMAP4.error as e:
+        err = str(e)
+        if "AUTHENTICATIONFAILED" in err.upper() or "LOGIN" in err.upper():
+            return (
+                f"Authentication failed for {email_address}.\n"
+                "For Gmail, make sure you're using an App Password:\n"
+                "  https://myaccount.google.com/apppasswords"
+            )
+        return f"IMAP error: {e}"
+    except Exception as e:
+        return f"Connection failed: {e}"
+
+    if not emails:
+        return f"No emails found matching '{search}' in {folder}."
+
+    if ctx:
+        await ctx.report_progress(progress=100, total=100, message="Done!")
+
+    lines = [f"Emails ({len(emails)} results from {folder})\n"]
+    for i, em in enumerate(emails, 1):
+        lines.append(f"{i}. {em['subject']}")
+        lines.append(f"   From: {em['from']}")
+        lines.append(f"   Date: {em['date']}")
+        if em["body"]:
+            preview = em["body"][:300].replace("\n", " ")
+            lines.append(f"   {preview}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Pastebin — post text to dpaste.org (no auth, no API key)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def paste_text(
+    content: str,
+    title: str = "",
+    syntax: str = "text",
+    expiry_days: int = 7,
+    ctx: Context = None,
+) -> str:
+    """Post text to dpaste.org and return a shareable URL.
+
+    Great for sharing code, logs, configs, or any text output.
+    No account or API key needed. Pastes expire automatically.
+
+    Sample prompts that trigger this tool:
+        - "Paste this code and give me a link"
+        - "Upload this log to a pastebin"
+        - "Share this config file online"
+        - "Create a paste with this error output"
+
+    Args:
+        content: The text content to paste.
+        title: Optional title for the paste.
+        syntax: Syntax highlighting (e.g. "python", "json", "bash"). Default: text.
+        expiry_days: Days until the paste expires (1-365). Default: 7.
+    """
+    if not content.strip():
+        return "Nothing to paste — content is empty."
+
+    expiry_days = max(1, min(365, expiry_days))
+
+    def _post() -> str:
+        import urllib.parse
+        errors: list[str] = []
+
+        # 1. paste.rs (simple, reliable)
+        try:
+            data = content.encode("utf-8")
+            req = urllib.request.Request(
+                "https://paste.rs/", data=data,
+                headers={"User-Agent": "Mozilla/5.0", "Content-Type": "text/plain"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                url = resp.read().decode().strip()
+                if url.startswith("http"):
+                    return url
+        except Exception as e:
+            errors.append(f"paste.rs: {e}")
+
+        # 2. dpaste.com
+        try:
+            data = urllib.parse.urlencode({
+                "content": content, "syntax": syntax,
+                "expiry_days": str(expiry_days),
+            }).encode()
+            req = urllib.request.Request(
+                "https://dpaste.com/api/v2/", data=data,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                url = resp.read().decode().strip()
+                if url.startswith("http"):
+                    return url
+        except Exception as e:
+            errors.append(f"dpaste.com: {e}")
+
+        # 3. dpaste.org (fallback)
+        try:
+            data = urllib.parse.urlencode({
+                "content": content, "title": title,
+                "syntax": syntax, "expiry_days": str(expiry_days),
+            }).encode()
+            req = urllib.request.Request(
+                "https://dpaste.org/api/", data=data,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                url = resp.read().decode().strip().strip('"')
+                if url.startswith("http"):
+                    return url
+        except Exception as e:
+            errors.append(f"dpaste.org: {e}")
+
+        raise RuntimeError("All paste services failed: " + "; ".join(errors))
+
+    try:
+        url = await asyncio.to_thread(_post)
+    except Exception as e:
+        return f"Failed to create paste: {e}"
+
+    return f"Paste created: {url}\nExpires in {expiry_days} days."
+
+
+# ---------------------------------------------------------------------------
+# URL shortener — TinyURL (no auth, no API key)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def shorten_url(
+    url: str,
+    ctx: Context = None,
+) -> str:
+    """Shorten a long URL using TinyURL. No account or API key needed.
+
+    Sample prompts that trigger this tool:
+        - "Shorten this URL: https://very-long-url.com/path/..."
+        - "Give me a short link for this"
+        - "Create a tinyurl for https://..."
+
+    Args:
+        url: The URL to shorten.
+    """
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    def _shorten() -> str:
+        api_url = f"https://tinyurl.com/api-create.php?url={urllib.request.quote(url, safe='')}"
+        req = urllib.request.Request(
+            api_url, headers={"User-Agent": "NoAPI-MCP/1.0"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.read().decode().strip()
+
+    try:
+        short = await asyncio.to_thread(_shorten)
+    except Exception as e:
+        return f"Failed to shorten URL: {e}"
+
+    return f"Short URL: {short}\nOriginal: {url}"
+
+
+# ---------------------------------------------------------------------------
+# QR code generator — OpenCV (already a dependency)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def generate_qr(
+    data: str,
+    output_path: str = "",
+    size: int = 400,
+    ctx: Context = None,
+) -> str:
+    """Generate a QR code image from text, URLs, Wi-Fi credentials, or any data.
+
+    Use cases:
+        - URLs: shareable links, payment pages
+        - Wi-Fi: WIFI:T:WPA;S:NetworkName;P:password;;
+        - Contact info: vCard format
+        - Plain text: any message
+
+    Sample prompts that trigger this tool:
+        - "Generate a QR code for https://example.com"
+        - "Create a QR code for my Wi-Fi: SSID=MyNet, password=secret123"
+        - "Make a QR code with this text"
+        - "QR code for my Bitcoin address"
+
+    Args:
+        data: The content to encode in the QR code.
+        output_path: Optional output file path. Default: ~/qr_code.png.
+        size: Image size in pixels (width=height). Default: 400.
+    """
+    if not data.strip():
+        return "Nothing to encode — data is empty."
+
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return "OpenCV is required. Install with: pip install opencv-python-headless"
+
+    if not output_path:
+        output_path = os.path.join(os.path.expanduser("~"), "qr_code.png")
+    else:
+        output_path = os.path.expanduser(output_path)
+
+    def _generate() -> str:
+        encoder = cv2.QRCodeEncoder.create()
+        qr_img = encoder.encode(data)
+        if qr_img is None or qr_img.size == 0:
+            raise ValueError("QR encoding failed — data may be too long.")
+        # Resize to requested size
+        h, w = qr_img.shape[:2]
+        scale = max(size // w, 1)
+        resized = cv2.resize(
+            qr_img, (w * scale, h * scale),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        cv2.imwrite(output_path, resized)
+        return output_path
+
+    try:
+        path = await asyncio.to_thread(_generate)
+    except Exception as e:
+        return f"QR generation failed: {e}"
+
+    return f"QR code saved to: {path}\nData: {data[:100]}{'...' if len(data) > 100 else ''}"
+
+
+# ---------------------------------------------------------------------------
+# Archive.is — save a webpage snapshot
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def archive_webpage(
+    url: str,
+    ctx: Context = None,
+) -> str:
+    """Archive a webpage on archive.today (archive.is) for permanent preservation.
+
+    Creates a timestamped snapshot of any webpage. Useful for preserving:
+        - News articles before they're edited or deleted
+        - Social media posts
+        - Product pages with specific prices
+        - Any web content you want to reference later
+
+    Sample prompts that trigger this tool:
+        - "Archive this page: https://example.com/article"
+        - "Save this webpage to archive.is"
+        - "Preserve this article before it gets taken down"
+        - "Create an archive snapshot of this URL"
+
+    Args:
+        url: The URL of the webpage to archive.
+    """
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    def _archive() -> str:
+        # First check if already archived
+        check_url = f"https://archive.org/wayback/available?url={urllib.request.quote(url, safe='')}"
+        req = urllib.request.Request(
+            check_url, headers={"User-Agent": "NoAPI-MCP/1.0"},
+        )
+        existing = ""
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                snap = data.get("archived_snapshots", {}).get("closest", {})
+                if snap.get("available"):
+                    existing = snap["url"]
+        except Exception:
+            pass
+
+        # Submit to Wayback Machine Save Page Now
+        save_url = f"https://web.archive.org/save/{url}"
+        req = urllib.request.Request(
+            save_url,
+            headers={"User-Agent": "NoAPI-MCP/1.0"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                final_url = resp.url
+                if "web.archive.org" in final_url:
+                    return final_url
+        except Exception:
+            pass
+
+        # Fallback: return existing archive if save failed
+        if existing:
+            return existing
+
+        # Final fallback: return the Wayback Machine URL pattern
+        return f"https://web.archive.org/web/*/{url}"
+
+    if ctx:
+        await ctx.report_progress(
+            progress=0, total=100, message="Submitting to archive...",
+        )
+
+    try:
+        archive_url = await asyncio.to_thread(_archive)
+    except Exception as e:
+        return f"Archive failed: {e}"
+
+    return (
+        f"Archived: {archive_url}\n"
+        f"Original: {url}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wikipedia — article lookup (no API key)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def wikipedia(
+    query: str,
+    language: str = "en",
+    sentences: int = 0,
+    ctx: Context = None,
+) -> str:
+    """Look up a Wikipedia article and return its content.
+
+    Returns the article summary or full text. Supports all Wikipedia languages.
+
+    Sample prompts that trigger this tool:
+        - "Wikipedia: quantum computing"
+        - "Look up Albert Einstein on Wikipedia"
+        - "What does Wikipedia say about the French Revolution?"
+        - "Get the Wikipedia article for Python programming language"
+        - "Wikipedia en español: inteligencia artificial"
+
+    Args:
+        query: The topic to search for.
+        language: Wikipedia language code (e.g. "en", "de", "fr", "es", "ja"). Default: en.
+        sentences: Number of sentences for summary (0 = full article extract). Default: 0.
+    """
+    if not query.strip():
+        return "No query provided."
+
+    def _fetch() -> dict:
+        # Search for the best matching article
+        search_url = (
+            f"https://{language}.wikipedia.org/api/rest_v1/page/summary/"
+            f"{urllib.request.quote(query.replace(' ', '_'))}"
+        )
+        req = urllib.request.Request(
+            search_url,
+            headers={"User-Agent": "NoAPI-MCP/1.0"},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except urllib.request.HTTPError:
+            # Try search API as fallback
+            search_api = (
+                f"https://{language}.wikipedia.org/w/api.php?"
+                f"action=opensearch&search={urllib.request.quote(query)}"
+                f"&limit=1&format=json"
+            )
+            req2 = urllib.request.Request(
+                search_api,
+                headers={"User-Agent": "NoAPI-MCP/1.0"},
+            )
+            with urllib.request.urlopen(req2, timeout=10) as resp2:
+                results = json.loads(resp2.read())
+                if results[1]:
+                    title = results[1][0]
+                    # Retry with the correct title
+                    retry_url = (
+                        f"https://{language}.wikipedia.org/api/rest_v1/page/summary/"
+                        f"{urllib.request.quote(title.replace(' ', '_'))}"
+                    )
+                    req3 = urllib.request.Request(
+                        retry_url,
+                        headers={"User-Agent": "NoAPI-MCP/1.0"},
+                    )
+                    with urllib.request.urlopen(req3, timeout=10) as resp3:
+                        return json.loads(resp3.read())
+                return {}
+
+    try:
+        data = await asyncio.to_thread(_fetch)
+    except Exception as e:
+        return f"Wikipedia lookup failed: {e}"
+
+    if not data or data.get("type") == "not_found":
+        return f"No Wikipedia article found for: {query}"
+
+    title = data.get("title", query)
+    extract = data.get("extract", "")
+    page_url = data.get("content_urls", {}).get("desktop", {}).get("page", "")
+    description = data.get("description", "")
+
+    if not extract:
+        return f"No content found for: {query}"
+
+    if sentences > 0:
+        parts = extract.split(". ")
+        extract = ". ".join(parts[:sentences])
+        if not extract.endswith("."):
+            extract += "."
+
+    lines = [f"Wikipedia: {title}"]
+    if description:
+        lines.append(f"({description})")
+    lines.append("")
+    lines.append(extract)
+    if page_url:
+        lines.append(f"\nSource: {page_url}")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# MinIO / S3-compatible object storage upload
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def upload_to_s3(
+    file_path: str,
+    bucket: str,
+    key: str = "",
+    endpoint: str = "",
+    access_key: str = "",
+    secret_key: str = "",
+    ctx: Context = None,
+) -> str:
+    """Upload a file to MinIO, AWS S3, or any S3-compatible storage.
+
+    Works with MinIO (self-hosted), AWS S3, DigitalOcean Spaces,
+    Backblaze B2, Cloudflare R2, and any S3-compatible service.
+
+    Credentials can be passed directly or read from environment variables:
+        AWS_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+
+    Sample prompts that trigger this tool:
+        - "Upload report.pdf to my MinIO bucket"
+        - "Upload this file to S3 bucket my-bucket"
+        - "Store backup.tar.gz in MinIO at backup-bucket/daily/"
+        - "Upload to my DigitalOcean Space"
+
+    Args:
+        file_path: Local file to upload.
+        bucket: Bucket name.
+        key: Object key (path in bucket). Default: filename.
+        endpoint: S3 endpoint URL (e.g. "http://localhost:9000" for MinIO).
+            Falls back to AWS_ENDPOINT_URL env var, then AWS S3 default.
+        access_key: Access key. Falls back to AWS_ACCESS_KEY_ID env var.
+        secret_key: Secret key. Falls back to AWS_SECRET_ACCESS_KEY env var.
+    """
+    file_path = os.path.expanduser(file_path)
+    if not os.path.isfile(file_path):
+        return f"File not found: {file_path}"
+
+    if not key:
+        key = os.path.basename(file_path)
+
+    endpoint = endpoint or os.environ.get("AWS_ENDPOINT_URL", "")
+    access_key = access_key or os.environ.get("AWS_ACCESS_KEY_ID", "")
+    secret_key = secret_key or os.environ.get("AWS_SECRET_ACCESS_KEY", "")
+
+    if not access_key or not secret_key:
+        return (
+            "Missing credentials. Provide access_key/secret_key or set env vars:\n"
+            "  export AWS_ACCESS_KEY_ID=your-key\n"
+            "  export AWS_SECRET_ACCESS_KEY=your-secret\n"
+            "  export AWS_ENDPOINT_URL=http://localhost:9000  (for MinIO)"
+        )
+
+    # Use AWS CLI or mc (MinIO Client) — check what's available
+    def _upload() -> str:
+        # Try MinIO client (mc) first
+        mc_path = None
+        for name in ("mc", "mcli"):
+            try:
+                r = subprocess.run(
+                    [name, "--version"], capture_output=True, timeout=5,
+                )
+                if r.returncode == 0:
+                    mc_path = name
+                    break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+
+        if mc_path:
+            # Configure alias and upload
+            alias = "noapi_tmp"
+            ep = endpoint or "https://s3.amazonaws.com"
+            subprocess.run(
+                [mc_path, "alias", "set", alias, ep, access_key, secret_key],
+                capture_output=True, timeout=10,
+            )
+            r = subprocess.run(
+                [mc_path, "cp", file_path, f"{alias}/{bucket}/{key}"],
+                capture_output=True, text=True, timeout=300,
+            )
+            # Clean up alias
+            subprocess.run(
+                [mc_path, "alias", "remove", alias],
+                capture_output=True, timeout=5,
+            )
+            if r.returncode == 0:
+                return f"s3://{bucket}/{key}"
+            raise RuntimeError(r.stderr or "mc upload failed")
+
+        # Fallback: AWS CLI
+        try:
+            cmd = ["aws", "s3", "cp", file_path, f"s3://{bucket}/{key}"]
+            env = os.environ.copy()
+            env["AWS_ACCESS_KEY_ID"] = access_key
+            env["AWS_SECRET_ACCESS_KEY"] = secret_key
+            if endpoint:
+                cmd.extend(["--endpoint-url", endpoint])
+            r = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=300, env=env,
+            )
+            if r.returncode == 0:
+                return f"s3://{bucket}/{key}"
+            raise RuntimeError(r.stderr or "aws cli upload failed")
+        except FileNotFoundError:
+            pass
+
+        return ""
+
+    if ctx:
+        await ctx.report_progress(progress=0, total=100, message="Uploading...")
+
+    try:
+        result = await asyncio.to_thread(_upload)
+    except Exception as e:
+        return f"Upload failed: {e}"
+
+    if not result:
+        return (
+            "No S3 client found. Install one of:\n"
+            "  MinIO Client: https://min.io/docs/minio/linux/reference/minio-mc.html\n"
+            "  AWS CLI: pip install awscli"
+        )
+
+    size_mb = os.path.getsize(file_path) / (1024 * 1024)
+
+    if ctx:
+        await ctx.report_progress(progress=100, total=100, message="Done!")
+
+    return (
+        f"Uploaded successfully.\n"
+        f"Location: {result}\n"
+        f"Size: {size_mb:.1f} MB"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Feed Subscription System — Subscribe, monitor, and search across sources
+# ---------------------------------------------------------------------------
+
+FEEDS_DB_PATH = os.path.join(
+    os.path.expanduser("~"), ".cache", "noapi-google-search-mcp", "feeds.db"
+)
+
+PRESET_NEWS_FEEDS = {
+    "bbc": {"name": "BBC News", "url": "http://feeds.bbci.co.uk/news/rss.xml"},
+    "cnn": {"name": "CNN", "url": "http://rss.cnn.com/rss/cnn_topstories.rss"},
+    "nyt": {"name": "New York Times", "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml"},
+    "guardian": {"name": "The Guardian", "url": "https://www.theguardian.com/world/rss"},
+    "npr": {"name": "NPR News", "url": "https://feeds.npr.org/1001/rss.xml"},
+    "aljazeera": {"name": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml"},
+    "techcrunch": {"name": "TechCrunch", "url": "https://techcrunch.com/feed/"},
+    "ars": {"name": "Ars Technica", "url": "https://feeds.arstechnica.com/arstechnica/index"},
+    "verge": {"name": "The Verge", "url": "https://www.theverge.com/rss/index.xml"},
+    "wired": {"name": "Wired", "url": "https://www.wired.com/feed/rss"},
+    "reuters": {"name": "Reuters", "url": "https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best"},
+}
+
+ARXIV_CATEGORIES = {
+    "ai": "cs.AI", "ml": "cs.LG", "cv": "cs.CV", "nlp": "cs.CL",
+    "robotics": "cs.RO", "crypto": "cs.CR", "systems": "cs.DC",
+    "hci": "cs.HC",
+}
+
+
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+def _get_feeds_db() -> sqlite3.Connection:
+    """Open (and initialise if needed) the feeds SQLite database."""
+    db_path = os.environ.get("FEEDS_DB_PATH", FEEDS_DB_PATH)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    _init_feeds_db(conn)
+    return conn
+
+
+def _init_feeds_db(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL,
+            identifier TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '',
+            feed_url TEXT NOT NULL DEFAULT '',
+            last_checked TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(source_type, identifier)
+        );
+        CREATE TABLE IF NOT EXISTS feed_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subscription_id INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL DEFAULT '',
+            url TEXT NOT NULL DEFAULT '',
+            author TEXT NOT NULL DEFAULT '',
+            published_at TEXT NOT NULL DEFAULT '',
+            fetched_at TEXT NOT NULL,
+            metadata TEXT NOT NULL DEFAULT '{}',
+            UNIQUE(subscription_id, url),
+            FOREIGN KEY (subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_items_sub ON feed_items(subscription_id);
+        CREATE INDEX IF NOT EXISTS idx_items_type ON feed_items(source_type);
+        CREATE INDEX IF NOT EXISTS idx_items_pub ON feed_items(published_at DESC);
+    """)
+    # FTS5 full-text search index
+    try:
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS feed_items_fts USING fts5(
+                title, content, author, content='feed_items', content_rowid='id'
+            )
+        """)
+        conn.executescript("""
+            CREATE TRIGGER IF NOT EXISTS fts_ai AFTER INSERT ON feed_items BEGIN
+                INSERT INTO feed_items_fts(rowid, title, content, author)
+                VALUES (new.id, new.title, new.content, new.author);
+            END;
+            CREATE TRIGGER IF NOT EXISTS fts_ad AFTER DELETE ON feed_items BEGIN
+                INSERT INTO feed_items_fts(feed_items_fts, rowid, title, content, author)
+                VALUES ('delete', old.id, old.title, old.content, old.author);
+            END;
+        """)
+    except Exception:
+        pass  # FTS5 not available on this build — LIKE fallback used
+    conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _fetch_url_bytes(url: str, timeout: int = 15) -> bytes:
+    """Fetch URL using stdlib urllib (no extra deps)."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags from feed content."""
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text)).strip()
+
+
+def _parse_rss_atom(xml_bytes: bytes) -> list[dict]:
+    """Parse RSS 2.0 or Atom feed XML into a flat list of items."""
+    root = ET.fromstring(xml_bytes)
+    items: list[dict] = []
+
+    # --- RSS 2.0 (<channel><item>) ---
+    for item in root.iter("item"):
+        items.append({
+            "title": (item.findtext("title") or "").strip(),
+            "url": (item.findtext("link") or "").strip(),
+            "content": _strip_html(item.findtext("description") or ""),
+            "published": (item.findtext("pubDate") or "").strip(),
+            "author": (
+                item.findtext("{http://purl.org/dc/elements/1.1/}creator")
+                or item.findtext("author") or ""
+            ).strip(),
+        })
+    if items:
+        return items
+
+    # --- Atom (<entry> with namespace) ---
+    # NOTE: ElementTree leaf elements are falsy — never chain find() with `or`.
+    atom = "http://www.w3.org/2005/Atom"
+    media = "http://search.yahoo.com/mrss/"
+    for entry in root.iter(f"{{{atom}}}entry"):
+        link_el = entry.find(f"{{{atom}}}link[@rel='alternate']")
+        if link_el is None:
+            link_el = entry.find(f"{{{atom}}}link")
+
+        content_el = entry.find(f"{{{atom}}}content")
+        if content_el is None:
+            content_el = entry.find(f"{{{atom}}}summary")
+        if content_el is None:
+            content_el = entry.find(f"{{{media}}}group/{{{media}}}description")
+
+        pub_el = entry.find(f"{{{atom}}}published")
+        if pub_el is None:
+            pub_el = entry.find(f"{{{atom}}}updated")
+
+        author_el = entry.find(f"{{{atom}}}author/{{{atom}}}name")
+        items.append({
+            "title": (entry.findtext(f"{{{atom}}}title") or "").strip(),
+            "url": link_el.get("href", "") if link_el is not None else "",
+            "content": _strip_html(
+                content_el.text if content_el is not None and content_el.text else ""
+            ),
+            "published": (
+                pub_el.text if pub_el is not None and pub_el.text else ""
+            ).strip(),
+            "author": (
+                author_el.text if author_el is not None and author_el.text else ""
+            ).strip(),
+        })
+    if items:
+        return items
+
+    # --- Atom without namespace (fallback) ---
+    for entry in root.iter("entry"):
+        link_el = entry.find("link[@rel='alternate']")
+        if link_el is None:
+            link_el = entry.find("link")
+
+        content_el = entry.find("content")
+        if content_el is None:
+            content_el = entry.find("summary")
+
+        pub_el = entry.find("published")
+        if pub_el is None:
+            pub_el = entry.find("updated")
+
+        author_el = entry.find("author/name")
+        items.append({
+            "title": (entry.findtext("title") or "").strip(),
+            "url": link_el.get("href", "") if link_el is not None else "",
+            "content": _strip_html(
+                content_el.text if content_el is not None and content_el.text else ""
+            ),
+            "published": (
+                pub_el.text if pub_el is not None and pub_el.text else ""
+            ).strip(),
+            "author": (
+                author_el.text if author_el is not None and author_el.text else ""
+            ).strip(),
+        })
+    return items
+
+
+def _store_items(
+    conn: sqlite3.Connection, sub_id: int, source_type: str, items: list[dict]
+) -> int:
+    """Store feed items in the database; skip duplicates. Returns new-item count."""
+    new_count = 0
+    now = datetime.now(timezone.utc).isoformat()
+    for item in items:
+        url = item.get("url", "")
+        if not url:
+            continue
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO feed_items
+               (subscription_id, source_type, title, content, url, author,
+                published_at, fetched_at, metadata)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                sub_id, source_type,
+                item.get("title", ""), item.get("content", ""),
+                url, item.get("author", ""),
+                item.get("published", ""), now,
+                item.get("metadata", "{}"),
+            ),
+        )
+        if cur.rowcount > 0:
+            new_count += 1
+    conn.commit()
+    return new_count
+
+
+# ---------------------------------------------------------------------------
+# Source-specific fetch functions
+# ---------------------------------------------------------------------------
+
+async def _check_source_rss(feed_url: str) -> list[dict]:
+    """Fetch and parse any RSS/Atom feed."""
+    data = await asyncio.to_thread(_fetch_url_bytes, feed_url)
+    return _parse_rss_atom(data)
+
+
+async def _check_source_reddit(subreddit: str) -> list[dict]:
+    """Fetch recent posts from a subreddit via its native RSS feed."""
+    url = f"https://www.reddit.com/r/{subreddit}/.rss"
+    data = await asyncio.to_thread(_fetch_url_bytes, url)
+    return _parse_rss_atom(data)
+
+
+async def _check_source_hackernews(
+    feed_type: str = "top", limit: int = 30
+) -> list[dict]:
+    """Fetch top/new/best stories from the Hacker News public API."""
+    type_map = {"top": "topstories", "new": "newstories", "best": "beststories"}
+    endpoint = type_map.get(feed_type, "topstories")
+    url = f"https://hacker-news.firebaseio.com/v0/{endpoint}.json"
+
+    data = await asyncio.to_thread(_fetch_url_bytes, url)
+    story_ids = json.loads(data)[:limit]
+
+    async def _get(sid: int):
+        try:
+            raw = await asyncio.to_thread(
+                _fetch_url_bytes,
+                f"https://hacker-news.firebaseio.com/v0/item/{sid}.json",
+            )
+            return json.loads(raw)
+        except Exception:
+            return None
+
+    stories = await asyncio.gather(*[_get(sid) for sid in story_ids])
+
+    items = []
+    for s in stories:
+        if not s or s.get("type") != "story":
+            continue
+        items.append({
+            "title": s.get("title", ""),
+            "url": s.get(
+                "url", f"https://news.ycombinator.com/item?id={s['id']}"
+            ),
+            "content": _strip_html(s.get("text", "")),
+            "published": (
+                datetime.fromtimestamp(s["time"], tz=timezone.utc).isoformat()
+                if s.get("time") else ""
+            ),
+            "author": s.get("by", ""),
+            "metadata": json.dumps({
+                "score": s.get("score", 0),
+                "comments": s.get("descendants", 0),
+                "hn_id": s.get("id"),
+            }),
+        })
+    return items
+
+
+async def _check_source_github(repo: str) -> list[dict]:
+    """Fetch releases (or commits) for a public GitHub repository."""
+    url = f"https://github.com/{repo}/releases.atom"
+    try:
+        data = await asyncio.to_thread(_fetch_url_bytes, url)
+        items = _parse_rss_atom(data)
+    except Exception:
+        # No releases — fall back to commits feed
+        url = f"https://github.com/{repo}/commits.atom"
+        data = await asyncio.to_thread(_fetch_url_bytes, url)
+        items = _parse_rss_atom(data)
+    for item in items:
+        item.setdefault("author", repo)
+    return items
+
+
+async def _check_source_arxiv(
+    category: str, max_results: int = 20
+) -> list[dict]:
+    """Fetch recent papers from arXiv by category."""
+    url = (
+        f"http://export.arxiv.org/api/query?search_query=cat:{category}"
+        f"&start=0&max_results={max_results}"
+        f"&sortBy=submittedDate&sortOrder=descending"
+    )
+    data = await asyncio.to_thread(_fetch_url_bytes, url)
+    return _parse_rss_atom(data)
+
+
+async def _resolve_yt_channel(identifier: str) -> dict:
+    """Resolve a YouTube handle/URL/ID to {channel_id, name, feed_url}."""
+    if re.match(r"^UC[\w-]{22}$", identifier):
+        return {
+            "channel_id": identifier,
+            "name": identifier,
+            "feed_url": f"https://www.youtube.com/feeds/videos.xml?channel_id={identifier}",
+        }
+
+    if identifier.startswith("http"):
+        url = identifier
+    elif identifier.startswith("@"):
+        url = f"https://www.youtube.com/{identifier}"
+    else:
+        url = f"https://www.youtube.com/@{identifier}"
+
+    html = await asyncio.to_thread(_fetch_url_bytes, url)
+    text = html.decode("utf-8", errors="ignore")
+
+    m = (
+        re.search(r'"channelId"\s*:\s*"(UC[\w-]{22})"', text)
+        or re.search(r"channel_id=(UC[\w-]{22})", text)
+        or re.search(r"/channel/(UC[\w-]{22})", text)
+    )
+    if not m:
+        raise ValueError(f"Could not resolve YouTube channel: {identifier}")
+
+    channel_id = m.group(1)
+    name_m = re.search(r'"name"\s*:\s*"([^"]{1,100})"', text)
+    name = name_m.group(1) if name_m else identifier
+
+    return {
+        "channel_id": channel_id,
+        "name": name,
+        "feed_url": f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}",
+    }
+
+
+async def _check_source_youtube(feed_url: str) -> list[dict]:
+    """Fetch recent videos from a YouTube channel RSS feed."""
+    data = await asyncio.to_thread(_fetch_url_bytes, feed_url)
+    items = _parse_rss_atom(data)
+    for item in items:
+        if item.get("url") and "youtube.com" in item["url"]:
+            meta = {"video_url": item["url"]}
+            item["metadata"] = json.dumps(meta)
+    return items
+
+
+async def _auto_transcribe_youtube(
+    conn: sqlite3.Connection,
+    sub_id: int,
+    items: list[dict],
+    ctx: Context = None,
+    max_videos: int = 5,
+    model_size: str = "tiny",
+) -> str:
+    """Auto-transcribe new YouTube videos and store transcripts in the DB.
+
+    Gracefully skips if yt-dlp or faster-whisper are not installed.
+    Uses the existing transcript cache to avoid re-downloading.
+    Caps at *max_videos* per invocation so check_feeds doesn't block forever.
+    Transcripts are written into feed_items.content so FTS5 can search them.
+
+    Returns a short status string to append to the check_feeds result line,
+    or an empty string if nothing happened.
+    """
+    # ── dependency check — soft fail, never crash ──────────────────────
+    try:
+        import yt_dlp  # noqa: F401
+    except ImportError:
+        return " (auto-transcription skipped: install yt-dlp)"
+    try:
+        from faster_whisper import WhisperModel  # noqa: F401
+    except ImportError:
+        return " (auto-transcription skipped: install faster-whisper)"
+
+    os.makedirs(TRANSCRIBE_CACHE_DIR, exist_ok=True)
+    os.makedirs(TRANSCRIPT_CACHE_DIR, exist_ok=True)
+
+    # ── collect video URLs that still need transcription ───────────────
+    uncached: list[str] = []
+    for item in items:
+        url = item.get("url", "")
+        if not url or "youtube.com" not in url:
+            continue
+        cache_path = _transcript_cache_path(url, model_size)
+        if not os.path.isfile(cache_path):
+            uncached.append(url)
+
+    if not uncached:
+        return ""
+
+    total_pending = len(uncached)
+    batch = uncached[:max_videos]
+
+    transcribed = 0
+    errors: list[str] = []
+
+    for i, video_url in enumerate(batch):
+        try:
+            if ctx:
+                await ctx.report_progress(
+                    progress=i, total=len(batch),
+                    message=f"Auto-transcribing video {i + 1}/{len(batch)}...",
+                )
+
+            # Download audio (in thread — keeps event loop alive)
+            dl_info = await asyncio.to_thread(
+                _download_audio, video_url, TRANSCRIBE_CACHE_DIR,
+            )
+
+            # Transcribe audio (in thread)
+            whisper_result = await asyncio.to_thread(
+                _transcribe_audio, dl_info["audio_path"], model_size, "",
+            )
+
+            segments = whisper_result["segments"]
+            if not segments:
+                errors.append(f"no speech: {video_url}")
+                continue
+
+            # Build transcript text (same format as transcribe_video tool)
+            transcript_lines = [
+                "Video Transcript",
+                f"Title: {dl_info['title']}",
+                f"Duration: {_format_timestamp(dl_info['duration'])}",
+                f"Language: {whisper_result['language']}\n",
+            ]
+            for seg in segments:
+                ts = _format_timestamp(seg["start"])
+                transcript_lines.append(f"[{ts}] {seg['text']}")
+            full_transcript = "\n".join(transcript_lines)
+
+            # Save to disk cache (reusable by transcribe_video tool)
+            cache_path = _transcript_cache_path(video_url, model_size)
+            with open(cache_path, "w") as f:
+                json.dump({"url": video_url, "transcript": full_transcript}, f)
+
+            # Write transcript into feed_items.content → FTS5 searchable
+            conn.execute(
+                "UPDATE feed_items SET content = ? "
+                "WHERE subscription_id = ? AND url = ?",
+                (full_transcript, sub_id, video_url),
+            )
+            conn.commit()
+
+            transcribed += 1
+
+            # Clean up temp audio file
+            try:
+                os.remove(dl_info["audio_path"])
+            except OSError:
+                pass
+
+        except Exception as e:
+            errors.append(str(e))
+
+    # ── build status string ────────────────────────────────────────────
+    parts: list[str] = []
+    if transcribed:
+        parts.append(f"{transcribed} transcribed")
+    if errors:
+        parts.append(f"{len(errors)} failed")
+    skipped = total_pending - len(batch)
+    if skipped > 0:
+        parts.append(f"{skipped} queued for next check")
+
+    return (" — " + ", ".join(parts)) if parts else ""
+
+
+async def _check_source_podcast(feed_url: str) -> list[dict]:
+    """Fetch episodes from a podcast RSS feed."""
+    data = await asyncio.to_thread(_fetch_url_bytes, feed_url)
+    root = ET.fromstring(data)
+    items: list[dict] = []
+    itunes = "http://www.itunes.com/dtds/podcast-1.0.dtd"
+    for item in root.iter("item"):
+        enclosure = item.find("enclosure")
+        audio_url = enclosure.get("url", "") if enclosure is not None else ""
+        meta: dict = {}
+        if audio_url:
+            meta["audio_url"] = audio_url
+        dur_el = item.find(f"{{{itunes}}}duration")
+        if dur_el is not None and dur_el.text:
+            meta["duration"] = dur_el.text.strip()
+        items.append({
+            "title": (item.findtext("title") or "").strip(),
+            "url": (item.findtext("link") or audio_url).strip(),
+            "content": _strip_html(item.findtext("description") or ""),
+            "published": (item.findtext("pubDate") or "").strip(),
+            "author": (
+                item.findtext(f"{{{itunes}}}author")
+                or item.findtext("author") or ""
+            ).strip(),
+            "metadata": json.dumps(meta),
+        })
+    return items
+
+
+async def _check_source_twitter(handle: str) -> list[dict]:
+    """Scrape recent tweets from a public Twitter/X profile via Playwright."""
+    handle = handle.lstrip("@")
+    url = f"https://x.com/{handle}"
+
+    async with async_playwright() as pw:
+        browser, context = await _launch_browser(pw)
+        page = await context.new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+            # Dismiss login / signup walls
+            for sel in (
+                '[data-testid="xMigrationBottomBar"] button',
+                'button:has-text("Not now")',
+                '[role="button"]:has-text("Not now")',
+                '[aria-label="Close"]',
+            ):
+                try:
+                    btn = page.locator(sel)
+                    if await btn.count() > 0:
+                        await btn.first.click()
+                        await page.wait_for_timeout(500)
+                        break
+                except Exception:
+                    continue
+
+            await page.wait_for_timeout(3000)
+
+            tweets = await page.evaluate("""
+                () => {
+                    const results = [];
+                    const articles = document.querySelectorAll(
+                        'article[data-testid="tweet"]'
+                    );
+                    for (const el of articles) {
+                        const textEl = el.querySelector(
+                            '[data-testid="tweetText"]'
+                        );
+                        const timeEl = el.querySelector('time');
+                        const links = el.querySelectorAll(
+                            'a[href*="/status/"]'
+                        );
+                        let tweetUrl = '';
+                        for (const a of links) {
+                            if (/\\/status\\/\\d+$/.test(
+                                a.getAttribute('href') || ''
+                            )) {
+                                tweetUrl = a.href;
+                                break;
+                            }
+                        }
+                        if (textEl) {
+                            results.push({
+                                text: textEl.innerText.trim(),
+                                time: timeEl
+                                    ? timeEl.getAttribute('datetime') || ''
+                                    : '',
+                                url: tweetUrl,
+                            });
+                        }
+                    }
+                    return results;
+                }
+            """)
+
+            items = []
+            for t in tweets:
+                if t.get("text"):
+                    txt = t["text"]
+                    items.append({
+                        "title": (txt[:120] + "...") if len(txt) > 120 else txt,
+                        "content": txt,
+                        "url": t.get("url", f"https://x.com/{handle}"),
+                        "published": t.get("time", ""),
+                        "author": f"@{handle}",
+                    })
+            return items
+
+        except Exception:
+            return []  # Twitter scraping is best-effort
+        finally:
+            await browser.close()
+
+
+# ---------------------------------------------------------------------------
+# MCP tools — Feed subscriptions
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def subscribe(
+    source_type: str,
+    identifier: str,
+    name: str = "",
+) -> str:
+    """Subscribe to a content source for automatic monitoring and search.
+
+    Supported source types: news, reddit, hackernews, github, arxiv, youtube, podcast, twitter.
+
+    After subscribing, run check_feeds to fetch content, then search_feeds to query it.
+
+    Sample prompts that trigger this tool:
+        - "Subscribe to BBC News"
+        - "Follow r/LocalLLaMA on Reddit"
+        - "Monitor Hacker News top stories"
+        - "Watch anthropics/claude-code on GitHub for new releases"
+        - "Subscribe to the YouTube channel @3Blue1Brown"
+        - "Follow @elonmusk on Twitter"
+        - "Subscribe to the machine learning arXiv category"
+        - "Add this podcast: https://feeds.example.com/podcast.xml"
+        - "Subscribe to CNN, NPR, and The Guardian"
+
+    Args:
+        source_type: One of: news, reddit, hackernews, github, arxiv, youtube, podcast, twitter.
+        identifier: Source identifier — depends on type:
+            - news: preset name (bbc, cnn, nyt, guardian, npr, aljazeera, techcrunch, ars, verge, wired, reuters) or a custom RSS URL
+            - reddit: subreddit name (e.g. "LocalLLaMA", "programming")
+            - hackernews: "top", "new", or "best"
+            - github: "owner/repo" (e.g. "anthropics/claude-code")
+            - arxiv: shortcut (ai, ml, cv, nlp, robotics, crypto) or arXiv category like "cs.AI"
+            - youtube: channel handle (@name), URL, or channel ID (UCxxxx)
+            - podcast: RSS feed URL
+            - twitter: username with or without @ (e.g. "elonmusk")
+        name: Optional display name for this subscription.
+    """
+    valid_types = (
+        "news", "reddit", "hackernews", "github",
+        "arxiv", "youtube", "podcast", "twitter",
+    )
+    source_type = source_type.lower().strip()
+    if source_type not in valid_types:
+        return (
+            f"Invalid source type '{source_type}'. "
+            f"Must be one of: {', '.join(valid_types)}"
+        )
+
+    identifier = identifier.strip()
+    feed_url = ""
+    display_name = name
+
+    if source_type == "news":
+        key = identifier.lower().replace(" ", "")
+        if key in PRESET_NEWS_FEEDS:
+            preset = PRESET_NEWS_FEEDS[key]
+            feed_url = preset["url"]
+            display_name = display_name or preset["name"]
+            identifier = key
+        elif identifier.startswith("http"):
+            feed_url = identifier
+            display_name = display_name or identifier
+        else:
+            presets = ", ".join(sorted(PRESET_NEWS_FEEDS.keys()))
+            return (
+                f"Unknown news preset '{identifier}'.\n"
+                f"Available presets: {presets}\n"
+                f"Or provide a custom RSS feed URL."
+            )
+
+    elif source_type == "reddit":
+        identifier = identifier.lstrip("r/").strip("/")
+        feed_url = f"https://www.reddit.com/r/{identifier}/.rss"
+        display_name = display_name or f"r/{identifier}"
+
+    elif source_type == "hackernews":
+        identifier = identifier.lower()
+        if identifier not in ("top", "new", "best"):
+            identifier = "top"
+        feed_url = f"hackernews:{identifier}"
+        display_name = display_name or f"Hacker News ({identifier})"
+
+    elif source_type == "github":
+        if "/" not in identifier:
+            return "GitHub identifier must be 'owner/repo' (e.g. 'anthropics/claude-code')."
+        feed_url = f"https://github.com/{identifier}/releases.atom"
+        display_name = display_name or identifier
+
+    elif source_type == "arxiv":
+        cat = ARXIV_CATEGORIES.get(identifier.lower(), identifier)
+        identifier = cat
+        feed_url = (
+            f"http://export.arxiv.org/api/query?search_query=cat:{cat}"
+            f"&max_results=20&sortBy=submittedDate&sortOrder=descending"
+        )
+        display_name = display_name or f"arXiv {cat}"
+
+    elif source_type == "youtube":
+        try:
+            info = await _resolve_yt_channel(identifier)
+            identifier = info["channel_id"]
+            feed_url = info["feed_url"]
+            display_name = display_name or info["name"]
+        except ValueError as e:
+            return str(e)
+
+    elif source_type == "podcast":
+        if not identifier.startswith("http"):
+            return "Podcast identifier must be an RSS feed URL."
+        feed_url = identifier
+        if not display_name:
+            try:
+                data = await asyncio.to_thread(_fetch_url_bytes, feed_url)
+                root = ET.fromstring(data)
+                t = root.findtext(".//channel/title")
+                display_name = t.strip() if t else identifier
+            except Exception:
+                display_name = identifier
+
+    elif source_type == "twitter":
+        identifier = identifier.lstrip("@")
+        feed_url = f"twitter:{identifier}"
+        display_name = display_name or f"@{identifier}"
+
+    conn = _get_feeds_db()
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """INSERT INTO subscriptions
+               (source_type, identifier, name, feed_url, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (source_type, identifier, display_name, feed_url, now),
+        )
+        conn.commit()
+        return (
+            f"Subscribed to {display_name} ({source_type}).\n"
+            f"Run check_feeds to fetch content."
+        )
+    except sqlite3.IntegrityError:
+        return f"Already subscribed to {display_name} ({source_type})."
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+async def unsubscribe(source_type: str, identifier: str) -> str:
+    """Remove a subscription and all its stored content.
+
+    Sample prompts that trigger this tool:
+        - "Unsubscribe from BBC News"
+        - "Stop following r/LocalLLaMA"
+        - "Remove the YouTube channel @3Blue1Brown"
+
+    Args:
+        source_type: The source type (news, reddit, hackernews, github, arxiv, youtube, podcast, twitter).
+        identifier: The same identifier used when subscribing.
+    """
+    conn = _get_feeds_db()
+    try:
+        row = conn.execute(
+            "SELECT id, name FROM subscriptions WHERE source_type = ? AND identifier = ?",
+            (source_type.lower().strip(), identifier.strip()),
+        ).fetchone()
+
+        if not row:
+            row = conn.execute(
+                "SELECT id, name FROM subscriptions WHERE name LIKE ? OR identifier LIKE ?",
+                (f"%{identifier.strip()}%", f"%{identifier.strip()}%"),
+            ).fetchone()
+
+        if not row:
+            return f"No subscription found for '{identifier}'."
+
+        conn.execute("DELETE FROM feed_items WHERE subscription_id = ?", (row["id"],))
+        conn.execute("DELETE FROM subscriptions WHERE id = ?", (row["id"],))
+        conn.commit()
+        return f"Unsubscribed from {row['name']}. Stored content removed."
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+async def list_subscriptions() -> str:
+    """List all active feed subscriptions with item counts.
+
+    Sample prompts that trigger this tool:
+        - "Show my subscriptions"
+        - "What feeds am I following?"
+        - "List all my monitored sources"
+    """
+    conn = _get_feeds_db()
+    try:
+        rows = conn.execute(
+            """SELECT s.*, COUNT(i.id) as item_count
+               FROM subscriptions s
+               LEFT JOIN feed_items i ON i.subscription_id = s.id
+               GROUP BY s.id
+               ORDER BY s.source_type, s.name""",
+        ).fetchall()
+
+        if not rows:
+            presets = ", ".join(sorted(PRESET_NEWS_FEEDS.keys()))
+            return (
+                "No active subscriptions.\n\n"
+                "Use subscribe() to add sources. "
+                f"Available news presets: {presets}"
+            )
+
+        lines = [f"Active Subscriptions ({len(rows)} total)\n"]
+        current_type = ""
+        for r in rows:
+            if r["source_type"] != current_type:
+                current_type = r["source_type"]
+                lines.append(f"\n  {current_type.upper()}")
+            checked = r["last_checked"][:16] if r["last_checked"] else "never"
+            lines.append(
+                f"    {r['name']} — "
+                f"{r['item_count']} items, last checked: {checked}"
+            )
+
+        return "\n".join(lines)
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+async def check_feeds(source_type: str = "", ctx: Context = None) -> str:
+    """Check all (or specific) subscriptions for new content. Fetches and stores latest items.
+
+    Sample prompts that trigger this tool:
+        - "Check my feeds"
+        - "What's new in my subscriptions?"
+        - "Fetch latest news"
+        - "Check Reddit feeds"
+        - "Update all my feed subscriptions"
+
+    Args:
+        source_type: Optionally limit to one type (news, reddit, hackernews, github, arxiv, youtube, podcast, twitter). Leave empty to check all.
+    """
+    conn = _get_feeds_db()
+    try:
+        if source_type:
+            subs = conn.execute(
+                "SELECT * FROM subscriptions WHERE source_type = ?",
+                (source_type.lower().strip(),),
+            ).fetchall()
+        else:
+            subs = conn.execute("SELECT * FROM subscriptions").fetchall()
+
+        if not subs:
+            return "No subscriptions to check. Use subscribe() first."
+
+        results = []
+        total_new = 0
+
+        for idx, sub in enumerate(subs):
+            try:
+                if ctx:
+                    await ctx.report_progress(
+                        progress=idx, total=len(subs),
+                        message=f"Checking {sub['name']}...",
+                    )
+
+                st = sub["source_type"]
+                items: list[dict] = []
+
+                if st == "news":
+                    items = await _check_source_rss(sub["feed_url"])
+                elif st == "reddit":
+                    items = await _check_source_reddit(sub["identifier"])
+                elif st == "hackernews":
+                    items = await _check_source_hackernews(sub["identifier"])
+                elif st == "github":
+                    items = await _check_source_github(sub["identifier"])
+                elif st == "arxiv":
+                    items = await _check_source_arxiv(sub["identifier"])
+                elif st == "youtube":
+                    items = await _check_source_youtube(sub["feed_url"])
+                elif st == "podcast":
+                    items = await _check_source_podcast(sub["feed_url"])
+                elif st == "twitter":
+                    items = await _check_source_twitter(sub["identifier"])
+
+                new_count = _store_items(conn, sub["id"], st, items)
+
+                conn.execute(
+                    "UPDATE subscriptions SET last_checked = ? WHERE id = ?",
+                    (datetime.now(timezone.utc).isoformat(), sub["id"]),
+                )
+                conn.commit()
+
+                total_new += new_count
+                note = ""
+                if st == "youtube":
+                    note = await _auto_transcribe_youtube(
+                        conn, sub["id"], items, ctx=ctx,
+                    )
+                elif st == "podcast" and new_count > 0:
+                    note = " — audio URLs stored, use transcribe_video to transcribe"
+
+                results.append(f"  {sub['name']}: {new_count} new items{note}")
+
+            except Exception as e:
+                results.append(f"  {sub['name']}: ERROR — {e}")
+
+        lines = ["Feed Check Complete\n"]
+        lines.extend(results)
+        lines.append(f"\nTotal: {total_new} new items across {len(subs)} sources")
+
+        return "\n".join(lines)
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+async def search_feeds(
+    query: str,
+    source_type: str = "",
+    limit: int = 20,
+) -> str:
+    """Full-text search across all stored feed content (articles, posts, tweets, transcripts).
+
+    Sample prompts that trigger this tool:
+        - "Search my feeds for machine learning"
+        - "Find mentions of GPT in my news feeds"
+        - "What have my Reddit feeds said about Rust?"
+        - "Search Twitter feeds for product launch"
+        - "Look for arxiv papers about transformers in my feeds"
+
+    Args:
+        query: Search query (supports FTS5 syntax: AND, OR, NOT, "quoted phrases").
+        source_type: Optionally limit to one type. Leave empty to search everything.
+        limit: Max results to return (default 20).
+    """
+    conn = _get_feeds_db()
+    try:
+        rows = None
+        # Try FTS5 first
+        try:
+            if source_type:
+                rows = conn.execute(
+                    """SELECT f.*, s.name as source_name
+                       FROM feed_items_fts fts
+                       JOIN feed_items f ON f.id = fts.rowid
+                       JOIN subscriptions s ON s.id = f.subscription_id
+                       WHERE feed_items_fts MATCH ? AND f.source_type = ?
+                       ORDER BY rank LIMIT ?""",
+                    (query, source_type.lower(), limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT f.*, s.name as source_name
+                       FROM feed_items_fts fts
+                       JOIN feed_items f ON f.id = fts.rowid
+                       JOIN subscriptions s ON s.id = f.subscription_id
+                       WHERE feed_items_fts MATCH ?
+                       ORDER BY rank LIMIT ?""",
+                    (query, limit),
+                ).fetchall()
+        except Exception:
+            rows = None  # FTS5 unavailable or query syntax error
+
+        # Fallback to LIKE
+        if rows is None:
+            like_q = f"%{query}%"
+            if source_type:
+                rows = conn.execute(
+                    """SELECT f.*, s.name as source_name
+                       FROM feed_items f
+                       JOIN subscriptions s ON s.id = f.subscription_id
+                       WHERE (f.title LIKE ? OR f.content LIKE ?) AND f.source_type = ?
+                       ORDER BY f.published_at DESC LIMIT ?""",
+                    (like_q, like_q, source_type.lower(), limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT f.*, s.name as source_name
+                       FROM feed_items f
+                       JOIN subscriptions s ON s.id = f.subscription_id
+                       WHERE f.title LIKE ? OR f.content LIKE ?
+                       ORDER BY f.published_at DESC LIMIT ?""",
+                    (like_q, like_q, limit),
+                ).fetchall()
+
+        if not rows:
+            return f'No results found for: "{query}"'
+
+        lines = [f'Feed Search: "{query}" ({len(rows)} results)\n']
+        for i, r in enumerate(rows, 1):
+            lines.append(
+                f"{i}. [{r['source_type']}/{r['source_name']}] {r['title']}"
+            )
+            if r["published_at"]:
+                lines.append(f"   Published: {r['published_at']}")
+            if r["url"]:
+                lines.append(f"   URL: {r['url']}")
+            if r["content"]:
+                snippet = r["content"][:200]
+                if len(r["content"]) > 200:
+                    snippet += "..."
+                lines.append(f"   {snippet}")
+            lines.append("")
+
+        return "\n".join(lines)
+    finally:
+        conn.close()
+
+
+@mcp.tool()
+async def get_feed_items(
+    source: str = "",
+    source_type: str = "",
+    limit: int = 20,
+) -> str:
+    """Get recent items from feed subscriptions, optionally filtered by source or type.
+
+    Sample prompts that trigger this tool:
+        - "What's new in my feeds?"
+        - "Show me the latest BBC News articles"
+        - "Show recent Reddit posts"
+        - "What are the latest Hacker News stories?"
+        - "Show me recent tweets from my followed accounts"
+        - "Get latest YouTube videos from my subscriptions"
+
+    Args:
+        source: Filter by source name (e.g. "BBC", "LocalLLaMA"). Leave empty for all.
+        source_type: Filter by type (news, reddit, hackernews, github, arxiv, youtube, podcast, twitter). Leave empty for all.
+        limit: Max items to return (default 20).
+    """
+    conn = _get_feeds_db()
+    try:
+        if source:
+            rows = conn.execute(
+                """SELECT f.*, s.name as source_name
+                   FROM feed_items f
+                   JOIN subscriptions s ON s.id = f.subscription_id
+                   WHERE s.name LIKE ? OR s.identifier LIKE ?
+                   ORDER BY f.published_at DESC LIMIT ?""",
+                (f"%{source}%", f"%{source}%", limit),
+            ).fetchall()
+        elif source_type:
+            rows = conn.execute(
+                """SELECT f.*, s.name as source_name
+                   FROM feed_items f
+                   JOIN subscriptions s ON s.id = f.subscription_id
+                   WHERE f.source_type = ?
+                   ORDER BY f.published_at DESC LIMIT ?""",
+                (source_type.lower(), limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT f.*, s.name as source_name
+                   FROM feed_items f
+                   JOIN subscriptions s ON s.id = f.subscription_id
+                   ORDER BY f.published_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+
+        if not rows:
+            return "No feed items found. Run check_feeds to fetch content."
+
+        lines = [f"Recent Feed Items ({len(rows)} items)\n"]
+        for i, r in enumerate(rows, 1):
+            lines.append(
+                f"{i}. [{r['source_type']}/{r['source_name']}] {r['title']}"
+            )
+            if r["published_at"]:
+                lines.append(f"   Published: {r['published_at']}")
+            if r["url"]:
+                lines.append(f"   URL: {r['url']}")
+            if r["content"]:
+                snippet = r["content"][:200]
+                if len(r["content"]) > 200:
+                    snippet += "..."
+                lines.append(f"   {snippet}")
+            lines.append("")
+
+        return "\n".join(lines)
+    finally:
+        conn.close()
