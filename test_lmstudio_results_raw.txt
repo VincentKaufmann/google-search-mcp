@@ -1,0 +1,959 @@
+======================================================================
+LM Studio Integration Test - gpt-oss-120b + MCP (38 tools)
+Started: 2026-02-18 02:32:59
+Tests: 42 | Tools registered: 37
+======================================================================
+
+──────────────────────────────────────────────────────────────────────
+TEST 01: Google Search [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Search Google for best budget GPU for LLM inference"
+
+EXPECTED TOOL: google_search
+EXPECTED ARGS CHECK: {'query': 'gpu'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_search
+ARGUMENTS: {
+  "query": "best budget GPU for LLM inference",
+  "num_results": 5
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.7s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 02: Google News [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Find recent news about OpenAI"
+
+EXPECTED TOOL: google_news
+EXPECTED ARGS CHECK: {'query': 'openai'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_news
+ARGUMENTS: {
+  "query": "OpenAI",
+  "num_results": 5
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 03: Google Scholar [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Find academic papers about attention mechanisms in transformers"
+
+EXPECTED TOOL: google_scholar
+EXPECTED ARGS CHECK: {'query': 'attention'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_scholar
+ARGUMENTS: {
+  "query": "attention mechanisms in transformers",
+  "num_results": 5
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.7s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 04: Google Images [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Show me images of the Northern Lights"
+
+EXPECTED TOOL: google_images
+EXPECTED ARGS CHECK: {'query': 'northern'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_images
+ARGUMENTS: {
+  "query": "Northern Lights",
+  "num_results": 5
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 05: Google Weather [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "What is the weather in Tokyo right now?"
+
+EXPECTED TOOL: google_weather
+EXPECTED ARGS CHECK: {'location': 'tokyo'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_weather
+ARGUMENTS: {
+  "location": "Tokyo"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.3s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 06: Google Finance [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "What is Apple stock price? Use google_finance to look it up."
+
+EXPECTED TOOL: google_finance
+EXPECTED ARGS CHECK: {'query': 'apple'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_finance
+ARGUMENTS: {
+  "query": "Apple"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.3s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 07: Google Translate [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Translate 'good morning' to German"
+
+EXPECTED TOOL: google_translate
+EXPECTED ARGS CHECK: {'text': 'good morning'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_translate
+ARGUMENTS: {
+  "text": "good morning",
+  "to_language": "German"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 08: Google Shopping [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Find me the cheapest RTX 4090 for sale"
+
+EXPECTED TOOL: google_shopping
+EXPECTED ARGS CHECK: {'query': '4090'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_shopping
+ARGUMENTS: {
+  "query": "RTX 4090",
+  "num_results": 5
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 09: Google Flights [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Search for flights from New York to London"
+
+EXPECTED TOOL: google_flights
+EXPECTED ARGS CHECK: {'origin': 'new york'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_flights
+ARGUMENTS: {
+  "origin": "New York",
+  "destination": "London"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 10: Google Hotels [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Search for hotels in Paris"
+
+EXPECTED TOOL: google_hotels
+EXPECTED ARGS CHECK: {'query': 'paris'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_hotels
+ARGUMENTS: {
+  "query": "Paris",
+  "num_results": 5
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 11: Google Maps [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Use google_maps to find pizza restaurants near Times Square in New York"
+
+EXPECTED TOOL: google_maps
+EXPECTED ARGS CHECK: {'query': 'pizza'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_maps
+ARGUMENTS: {
+  "query": "pizza restaurants near Times Square, New York",
+  "num_results": 5
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.7s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 12: Google Maps Directions [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Get driving directions from Berlin to Munich using google_maps_directions"
+
+EXPECTED TOOL: google_maps_directions
+EXPECTED ARGS CHECK: {}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_maps_directions
+ARGUMENTS: {
+  "url": "https://www.google.com/maps/dir/Berlin/Munich"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.7s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 13: Google Trends [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Show me Google Trends for artificial intelligence"
+
+EXPECTED TOOL: google_trends
+EXPECTED ARGS CHECK: {'query': 'artificial intelligence'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_trends
+ARGUMENTS: {
+  "query": "artificial intelligence"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 14: Google Books [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Find books about machine learning"
+
+EXPECTED TOOL: google_books
+EXPECTED ARGS CHECK: {'query': 'machine learning'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_books
+ARGUMENTS: {
+  "query": "machine learning",
+  "num_results": 5
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 15: Visit Page [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Read this web page for me: https://example.com"
+
+EXPECTED TOOL: visit_page
+EXPECTED ARGS CHECK: {'url': 'example.com'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: visit_page
+ARGUMENTS: {
+  "url": "https://example.com"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 16: Google Lens [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Use Google Lens reverse image search on this image: /tmp/test.jpg"
+
+EXPECTED TOOL: google_lens
+EXPECTED ARGS CHECK: {}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: google_lens
+ARGUMENTS: {
+  "url": "/tmp/test.jpg"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 17: OCR Image [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Extract text from this screenshot using OCR: /tmp/screenshot.png"
+
+EXPECTED TOOL: ocr_image
+EXPECTED ARGS CHECK: {'image_source': 'screenshot.png'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: ocr_image
+ARGUMENTS: {
+  "image_source": "/tmp/screenshot.png"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 18: Transcribe Video [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Transcribe this YouTube video: https://youtube.com/watch?v=abc123"
+
+EXPECTED TOOL: transcribe_video
+EXPECTED ARGS CHECK: {'url': 'youtube'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: transcribe_video
+ARGUMENTS: {
+  "url": "https://youtube.com/watch?v=abc123"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 19: Search Transcript [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Search the transcript of https://youtube.com/watch?v=abc123 for the word 'attention'"
+
+EXPECTED TOOL: search_transcript
+EXPECTED ARGS CHECK: {'query': 'attention'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: search_transcript
+ARGUMENTS: {
+  "url": "https://youtube.com/watch?v=abc123",
+  "query": "attention"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.7s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 20: Extract Video Clip [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Extract a clip from https://youtube.com/watch?v=abc123 from 60 to 120 seconds"
+
+EXPECTED TOOL: extract_video_clip
+EXPECTED ARGS CHECK: {'url': 'youtube'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: extract_video_clip
+ARGUMENTS: {
+  "url": "https://youtube.com/watch?v=abc123",
+  "start_seconds": 60,
+  "end_seconds": 120
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.9s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 21: Subscribe (News) [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Subscribe to BBC News feed"
+
+EXPECTED TOOL: subscribe
+EXPECTED ARGS CHECK: {'source_type': 'news', 'identifier': 'bbc'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: subscribe
+ARGUMENTS: {
+  "source_type": "news",
+  "identifier": "BBC"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 22: Subscribe (Reddit) [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Subscribe to the subreddit r/LocalLLaMA"
+
+EXPECTED TOOL: subscribe
+EXPECTED ARGS CHECK: {'source_type': 'reddit', 'identifier': 'localllama'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: subscribe
+ARGUMENTS: {
+  "source_type": "reddit",
+  "identifier": "r/LocalLlama"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 23: Subscribe (HN) [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Subscribe to Hacker News top stories"
+
+EXPECTED TOOL: subscribe
+EXPECTED ARGS CHECK: {'source_type': 'hackernews'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: subscribe
+ARGUMENTS: {
+  "source_type": "hackernews",
+  "identifier": "top"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 24: Subscribe (YouTube) [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Subscribe to the YouTube channel @3Blue1Brown"
+
+EXPECTED TOOL: subscribe
+EXPECTED ARGS CHECK: {'source_type': 'youtube', 'identifier': '3blue1brown'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: subscribe
+ARGUMENTS: {
+  "source_type": "youtube",
+  "identifier": "@3Blue1Brown"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 25: Subscribe (GitHub) [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Watch the GitHub repo anthropics/claude-code for new releases"
+
+EXPECTED TOOL: subscribe
+EXPECTED ARGS CHECK: {'source_type': 'github', 'identifier': 'anthropics'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: subscribe
+ARGUMENTS: {
+  "source_type": "github",
+  "identifier": "anthropics/claude-code"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 26: Subscribe (arXiv) [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Subscribe to the machine learning arXiv category"
+
+EXPECTED TOOL: subscribe
+EXPECTED ARGS CHECK: {'source_type': 'arxiv'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: subscribe
+ARGUMENTS: {
+  "source_type": "arxiv",
+  "identifier": "cs.LG"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 27: Subscribe (Twitter) [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Follow @elonmusk on Twitter"
+
+EXPECTED TOOL: subscribe
+EXPECTED ARGS CHECK: {'source_type': 'twitter', 'identifier': 'elon'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: subscribe
+ARGUMENTS: {
+  "source_type": "twitter",
+  "identifier": "@elonmusk"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 28: List Subscriptions [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Show me all my feed subscriptions"
+
+EXPECTED TOOL: list_subscriptions
+EXPECTED ARGS CHECK: {}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: list_subscriptions
+ARGUMENTS: {}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.1s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 29: Check Feeds [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Check all my feeds for new content"
+
+EXPECTED TOOL: check_feeds
+EXPECTED ARGS CHECK: {}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: check_feeds
+ARGUMENTS: {
+  "source_type": null
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.3s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 30: Search Feeds [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Search my feeds for transformer architecture"
+
+EXPECTED TOOL: search_feeds
+EXPECTED ARGS CHECK: {'query': 'transformer'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: search_feeds
+ARGUMENTS: {
+  "query": "transformer architecture",
+  "limit": 10
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 31: Get Feed Items [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Show me the latest items from my Reddit feeds"
+
+EXPECTED TOOL: get_feed_items
+EXPECTED ARGS CHECK: {'source_type': 'reddit'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: get_feed_items
+ARGUMENTS: {
+  "source_type": "reddit",
+  "limit": 10
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 32: Unsubscribe [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Unsubscribe from BBC News"
+
+EXPECTED TOOL: unsubscribe
+EXPECTED ARGS CHECK: {'source_type': 'news'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: unsubscribe
+ARGUMENTS: {
+  "source_type": "news",
+  "identifier": "BBC News"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 33: Transcribe Local [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Transcribe this local recording: ~/meeting.mp3"
+
+EXPECTED TOOL: transcribe_local
+EXPECTED ARGS CHECK: {'file_path': 'meeting'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: transcribe_local
+ARGUMENTS: {
+  "file_path": "~/meeting.mp3"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.5s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 34: Convert Media [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Convert video.mp4 to mp3 format"
+
+EXPECTED TOOL: convert_media
+EXPECTED ARGS CHECK: {'output_format': 'mp3'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: convert_media
+ARGUMENTS: {
+  "input_path": "video.mp4",
+  "output_format": "mp3"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.7s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 35: Read Document [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Read this PDF document: ~/report.pdf"
+
+EXPECTED TOOL: read_document
+EXPECTED ARGS CHECK: {'file_path': 'report'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: read_document
+ARGUMENTS: {
+  "file_path": "~/report.pdf"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 36: Fetch Emails [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Check my email at user@gmail.com with password abc123"
+
+EXPECTED TOOL: fetch_emails
+EXPECTED ARGS CHECK: {'email': 'gmail'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: fetch_emails
+ARGUMENTS: {
+  "email": "user@gmail.com",
+  "password": "abc123"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 37: Shorten URL [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Shorten this URL: https://www.example.com/very/long/path"
+
+EXPECTED TOOL: shorten_url
+EXPECTED ARGS CHECK: {'url': 'example.com'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: shorten_url
+ARGUMENTS: {
+  "url": "https://www.example.com/very/long/path"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 38: Wikipedia [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Look up quantum computing on Wikipedia"
+
+EXPECTED TOOL: wikipedia
+EXPECTED ARGS CHECK: {'query': 'quantum'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: wikipedia
+ARGUMENTS: {
+  "query": "Quantum computing"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.3s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 39: Paste Text [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Post this text to a pastebin: Hello World test paste"
+
+EXPECTED TOOL: paste_text
+EXPECTED ARGS CHECK: {'content': 'hello'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: paste_text
+ARGUMENTS: {
+  "content": "Hello World test paste",
+  "title": ""
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.6s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 40: Generate QR [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Generate a QR code for https://mysite.com"
+
+EXPECTED TOOL: generate_qr
+EXPECTED ARGS CHECK: {'data': 'mysite'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: generate_qr
+ARGUMENTS: {
+  "data": "https://mysite.com"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 41: Archive Webpage [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Archive this webpage on the Wayback Machine: https://example.com"
+
+EXPECTED TOOL: archive_webpage
+EXPECTED ARGS CHECK: {'url': 'example.com'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: archive_webpage
+ARGUMENTS: {
+  "url": "https://example.com"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.4s
+STATUS: PASS
+
+──────────────────────────────────────────────────────────────────────
+TEST 42: Upload to S3 [PASS]
+──────────────────────────────────────────────────────────────────────
+INPUT PROMPT:
+  "Upload report.pdf to my S3 bucket called my-docs"
+
+EXPECTED TOOL: upload_to_s3
+EXPECTED ARGS CHECK: {'bucket': 'my-docs'}
+
+LLM REASONING:
+  I must call a tool
+
+TOOL CALLED: upload_to_s3
+ARGUMENTS: {
+  "file_path": "report.pdf",
+  "bucket": "my-docs"
+}
+
+TOOL CORRECT: True
+ARGS CORRECT: True
+LATENCY: 1.7s
+STATUS: PASS
+
+======================================================================
+RESULTS: 42/42 passed, 0 failed, 0 errors
+Total time: 63.8s | Avg latency: 1.5s/call
+======================================================================

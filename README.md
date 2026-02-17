@@ -15,23 +15,30 @@ Works with **LM Studio**, **Claude Desktop**, **OpenClaw**, **Ollama**, and any 
 
 ## What's New in v0.3.0 — 16 New Tools
 
-## YouTube RAG — Subscribe, Transcribe, Search
+## YouTube RAG — Subscribe, Transcribe, Search, Clip
 
 A full local retrieval-augmented pipeline for YouTube. Subscribe to any channel, and when you check feeds the server automatically downloads the audio, transcribes it with Whisper, and stores the full transcript in SQLite with FTS5 full-text search. Every word from every video becomes searchable — ask your LLM a question and it pulls the answer from the right video.
+
+Found something interesting? Ask the LLM to extract that segment as a clip. It reads the transcript, finds the exact timestamps, and cuts the video for you. This is the beginning of **AI/LLM-powered video editing** — your LLM understands the content and cuts clips based on what's being said, not just timestamps.
 
 **How it works:**
 1. `subscribe` to a YouTube channel — by handle (`@3Blue1Brown`), URL, or channel ID
 2. `check_feeds` — new videos are fetched and **auto-transcribed** locally with faster-whisper. Transcripts are written into the database for instant search. Up to 5 videos per check, cached so nothing gets re-downloaded.
 3. `search_feeds` — full-text search across all transcripts. Supports AND, OR, NOT, and quoted phrases. Your LLM finds the exact video and passage that answers your question.
+4. `extract_video_clip` — tell the LLM what you're interested in and it cuts the clip from the video. The LLM uses the transcript to find the right segment and extracts it automatically.
 
 ```
 "Subscribe to @AndrejKarpathy on YouTube"
 "Check my feeds"
 "Search my feeds for backpropagation explained"
 "What did Karpathy say about tokenization?"
+"Extract the part where he explains gradient descent"
+"Cut a clip of the hardware comparison section"
 ```
 
 No embeddings, no vector database, no API — just Whisper + SQLite FTS5 running on your machine.
+
+> **Roadmap:** The clip extraction is the first step toward full AI-driven video editing. Future releases will add music/audio overlay, video remixing, multi-clip compilation, vertical reformat for TikTok/Reels/Shorts, and automated highlight reels — all driven by your LLM understanding the content.
 
 ---
 
@@ -147,13 +154,13 @@ Pull emails, generate QR codes, shorten URLs, archive pages, look up Wikipedia, 
 | `ocr_image` | Extract text from images locally (RapidOCR, fully offline) |
 | `list_images` | List image files in a directory for use with vision tools |
 
-### Video & Audio Intelligence
+### Video & Audio Intelligence — AI-Powered Video Editing
 | Tool | Description |
 |------|-------------|
 | `transcribe_video` | Download and transcribe any video with timestamps (faster-whisper) |
 | `transcribe_local` | Transcribe local audio/video files (mp3, wav, m4a, mp4, mkv, etc.) |
 | `search_transcript` | Search a transcribed video for topics by keyword |
-| `extract_video_clip` | Extract video clips by topic — ask and the LLM cuts it |
+| `extract_video_clip` | AI-powered clip extraction — tell the LLM what you want and it cuts the video using transcript context |
 | `convert_media` | Convert between audio/video formats via FFmpeg |
 
 ### Documents & Data
@@ -209,7 +216,8 @@ Pull emails, generate QR codes, shorten URLs, archive pages, look up Wikipedia, 
 | Object detection | Built-in (OpenCV + Lens) | Not available | Not available |
 | Local OCR | Built-in (offline) | Not available | Not available |
 | Video transcription | Built-in (local Whisper) | Not available | Not available |
-| Video clip extraction | Built-in | Not available | Not available |
+| Video clip extraction | **Built-in (AI/LLM-powered)** | Not available | Not available |
+| YouTube RAG pipeline | **Built-in (subscribe → transcribe → search)** | Not available | Not available |
 | Google Trends | Built-in | Separate API needed | Not available |
 | Feed subscriptions | **Built-in (8 source types)** | Not available | Not available |
 | Full-text feed search | **Built-in (SQLite FTS5)** | Not available | Not available |
@@ -536,18 +544,39 @@ Ask "extract the part about X" and the LLM finds timestamps from the transcript 
 
 > **Tip:** To enable drag-and-drop images with text-only models in LM Studio, add a `model.yaml` file in the model directory with `metadataOverrides: { vision: true }`. The image will be sent as base64 and the MCP tools handle it automatically.
 
-### Video Intelligence
+### Video Intelligence & AI-Powered Clip Extraction
 | What you type | Tool called |
 |--------------|-------------|
 | *"Transcribe this video: https://youtube.com/watch?v=..."* | `transcribe_video` |
 | *"What do they discuss in this video?"* | `transcribe_video` |
 | *"Find where they talk about memory bandwidth"* | `search_transcript` |
 | *"Extract the part where they discuss pricing"* | `extract_video_clip` |
+| *"Cut a clip of the hardware comparison section"* | `extract_video_clip` |
+| *"Transcribe ~/meeting.mp3"* | `transcribe_local` |
+| *"Convert video.mp4 to mp3"* | `convert_media` |
+| *"Convert this video to a GIF"* | `convert_media` |
 
-### Page Reading
+### Documents & Email
 | What you type | Tool called |
 |--------------|-------------|
+| *"Read this PDF: ~/report.pdf"* | `read_document` |
+| *"Extract text from ~/contract.docx"* | `read_document` |
 | *"Read this article for me: https://..."* | `visit_page` |
+| *"Check my email at user@gmail.com password: xxxx"* | `fetch_emails` |
+| *"Pull my latest 10 emails from Outlook"* | `fetch_emails` |
+
+### Web Utilities & Cloud
+| What you type | Tool called |
+|--------------|-------------|
+| *"Shorten this URL: https://very-long-url..."* | `shorten_url` |
+| *"Generate a QR code for https://mysite.com"* | `generate_qr` |
+| *"Make a QR code for my Wi-Fi network"* | `generate_qr` |
+| *"Post this code to a pastebin"* | `paste_text` |
+| *"Archive this article: https://news.example.com/story"* | `archive_webpage` |
+| *"Wikipedia: quantum computing"* | `wikipedia` |
+| *"Look up the Apollo 11 mission on Wikipedia in German"* | `wikipedia` |
+| *"Upload report.pdf to my MinIO bucket"* | `upload_to_s3` |
+| *"Store backup.tar.gz in S3 bucket my-backups"* | `upload_to_s3` |
 
 ---
 

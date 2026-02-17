@@ -3521,13 +3521,18 @@ async def search_transcript(
     model_size: str = "tiny",
     context_segments: int = 2,
 ) -> str:
-    """Search a previously transcribed video for segments matching a keyword or phrase.
+    """Search inside an already-transcribed video for segments matching a keyword.
 
-    Use this after transcribe_video to find specific topics and their timestamps.
+    IMPORTANT: This tool searches an EXISTING transcript — it does NOT download
+    or transcribe a video. The video must have been transcribed first with
+    transcribe_video. If the user says "search the transcript for X" or
+    "find where they talk about X", use THIS tool, not transcribe_video.
+
     Returns matching segments with surrounding context so the LLM can determine
     the exact start and end timestamps for a topic, then call extract_video_clip.
 
     Sample prompts that trigger this tool:
+        - "Search the transcript for memory bandwidth"
         - "Find where they talk about memory bandwidth in the video"
         - "What timestamp do they discuss pricing?"
         - "When do they mention the DGX Spark specs?"
