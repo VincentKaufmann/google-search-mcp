@@ -40,6 +40,7 @@ import hashlib
 import imaplib
 import json
 import os
+import random
 import re
 import sqlite3
 import subprocess
@@ -58,9 +59,61 @@ from playwright.async_api import async_playwright
 mcp = FastMCP("google-search")
 
 USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+
+# JavaScript to inject before every page load to hide automation signals
+STEALTH_JS = """
+// Overwrite navigator.webdriver to false
+Object.defineProperty(navigator, 'webdriver', { get: () => false });
+
+// Fake plugins array (headless Chrome has none by default)
+Object.defineProperty(navigator, 'plugins', {
+    get: () => [
+        { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer',
+          description: 'Portable Document Format',
+          length: 1, item: () => null, namedItem: () => null,
+          [Symbol.iterator]: function*() { yield {type: 'application/pdf'}; } },
+        { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai',
+          description: '', length: 1, item: () => null, namedItem: () => null,
+          [Symbol.iterator]: function*() { yield {type: 'application/pdf'}; } },
+        { name: 'Native Client', filename: 'internal-nacl-plugin',
+          description: '', length: 2, item: () => null, namedItem: () => null,
+          [Symbol.iterator]: function*() { yield {type: 'application/x-nacl'}; yield {type: 'application/x-pnacl'}; } },
+    ],
+});
+
+// Fake languages
+Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+
+// Fake chrome.runtime to look like a real Chrome browser
+if (!window.chrome) { window.chrome = {}; }
+if (!window.chrome.runtime) {
+    window.chrome.runtime = {
+        connect: function() {},
+        sendMessage: function() {},
+        onMessage: { addListener: function() {} },
+    };
+}
+
+// Remove Playwright-specific properties
+delete window.__playwright;
+delete window.__pw_manual;
+
+// Patch permissions query for notifications
+const originalQuery = window.Notification && Notification.permission
+    ? Notification.permission : 'default';
+if (navigator.permissions && navigator.permissions.query) {
+    const origQuery = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (params) => {
+        if (params.name === 'notifications') {
+            return Promise.resolve({ state: originalQuery, onchange: null });
+        }
+        return origQuery(params);
+    };
+}
+"""
 
 # Google's time filter parameter values
 TIME_RANGE_MAP = {
@@ -72,22 +125,106 @@ TIME_RANGE_MAP = {
 }
 
 
-async def _launch_browser(pw):
-    """Launch a headless Chromium browser with standard settings."""
+async def _launch_browser(pw, viewport=None):
+    """Launch a headless Chromium browser with stealth settings to avoid bot detection."""
     browser = await pw.chromium.launch(
         headless=True,
         args=[
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
             "--disable-dev-shm-usage",
+            "--disable-infobars",
+            "--window-size=1280,800",
         ],
     )
+    vp = viewport or {"width": 1280, "height": 800}
     context = await browser.new_context(
         user_agent=USER_AGENT,
-        viewport={"width": 1280, "height": 800},
+        viewport=vp,
         locale="en-US",
     )
+    # Inject stealth patches before any page loads
+    await context.add_init_script(STEALTH_JS)
     return browser, context
+
+
+COOKIE_PATH = os.path.join(os.path.expanduser("~"), ".google_mcp_cookies.json")
+
+
+async def _human_delay(page):
+    """Add a small random delay to mimic human interaction timing."""
+    await page.wait_for_timeout(random.randint(500, 1500))
+
+
+async def _save_cookies(context):
+    """Persist browser cookies to disk so Google sees a returning user."""
+    try:
+        cookies = await context.cookies()
+        with open(COOKIE_PATH, "w") as f:
+            json.dump(cookies, f)
+    except Exception:
+        pass
+
+
+async def _load_cookies(context):
+    """Load previously saved cookies into the browser context."""
+    try:
+        if os.path.isfile(COOKIE_PATH):
+            with open(COOKIE_PATH, "r") as f:
+                cookies = json.load(f)
+            if cookies:
+                await context.add_cookies(cookies)
+    except Exception:
+        pass
+
+
+async def _is_blocked(page) -> bool:
+    """Check if the current page is a Google CAPTCHA or rate-limit block."""
+    url = page.url
+    if "/sorry/" in url:
+        return True
+    try:
+        captcha = await page.locator(
+            "iframe[src*='recaptcha'], #captcha-form, "
+            "form[action*='sorry'], div.g-recaptcha"
+        ).count()
+        if captcha > 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+async def _try_solve_captcha(page) -> bool:
+    """Attempt to solve a simple reCAPTCHA checkbox by clicking it with human-like movement."""
+    try:
+        # Look for the reCAPTCHA iframe
+        recaptcha_frame = page.frame_locator("iframe[src*='recaptcha']")
+        checkbox = recaptcha_frame.locator("#recaptcha-anchor, .recaptcha-checkbox-border")
+        if await checkbox.count() == 0:
+            return False
+
+        # Move mouse in a slightly random arc then click (more human-like)
+        box = await checkbox.first.bounding_box()
+        if not box:
+            return False
+
+        # Random offset within the checkbox area
+        x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
+        y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+
+        # Move mouse with small random steps
+        await page.mouse.move(x - random.randint(50, 150), y - random.randint(50, 150))
+        await page.wait_for_timeout(random.randint(100, 300))
+        await page.mouse.move(x, y, steps=random.randint(10, 25))
+        await page.wait_for_timeout(random.randint(200, 500))
+        await page.mouse.click(x, y)
+        await page.wait_for_timeout(random.randint(2000, 4000))
+
+        # Check if CAPTCHA was resolved
+        return not await _is_blocked(page)
+    except Exception:
+        return False
 
 
 async def _dismiss_consent(page):
@@ -113,6 +250,8 @@ async def _dismiss_consent(page):
             await page.wait_for_load_state("domcontentloaded", timeout=5000)
     except Exception:
         pass
+    # Small random delay to mimic human interaction timing
+    await _human_delay(page)
 
 
 # ---------------------------------------------------------------------------
@@ -152,11 +291,24 @@ async def _do_google_search(
 
     async with async_playwright() as pw:
         browser, context = await _launch_browser(pw)
+        await _load_cookies(context)
         browser_page = await context.new_page()
 
         try:
             await browser_page.goto(url, wait_until="domcontentloaded", timeout=30000)
             await _dismiss_consent(browser_page)
+
+            # Detect and handle CAPTCHA/rate-limit blocks
+            if await _is_blocked(browser_page):
+                solved = await _try_solve_captcha(browser_page)
+                if not solved:
+                    await _save_cookies(context)
+                    return (
+                        "Search blocked by Google bot detection. "
+                        "Your IP may be temporarily rate-limited. "
+                        "Try again in a few minutes or from a different network."
+                    )
+
             await browser_page.wait_for_selector("div#search", timeout=15000)
 
             results = await browser_page.evaluate(
@@ -230,9 +382,18 @@ async def _do_google_search(
             return "\n".join(lines)
 
         except Exception as e:
+            # Check if the exception was due to bot detection
+            if await _is_blocked(browser_page):
+                await _save_cookies(context)
+                return (
+                    "Search blocked by Google bot detection. "
+                    "Your IP may be temporarily rate-limited. "
+                    "Try again in a few minutes or from a different network."
+                )
             return f"Search failed: {e}"
 
         finally:
+            await _save_cookies(context)
             await browser.close()
 
 
@@ -290,11 +451,19 @@ async def _do_google_news(query: str, num_results: int = 5) -> list:
 
     async with async_playwright() as pw:
         browser, context = await _launch_browser(pw)
+        await _load_cookies(context)
         page = await context.new_page()
 
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=30000)
             await _dismiss_consent(page)
+
+            if await _is_blocked(page):
+                solved = await _try_solve_captcha(page)
+                if not solved:
+                    await _save_cookies(context)
+                    return []
+
             await page.wait_for_selector("div#search", timeout=15000)
 
             results = await page.evaluate(
@@ -812,19 +981,7 @@ async def _do_google_maps(query: str, num_results: int = 5) -> list:
     url = f"https://www.google.com/maps/search/{encoded_query}/?hl=en"
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
-        context = await browser.new_context(
-            user_agent=USER_AGENT,
-            viewport={"width": 1400, "height": 900},
-            locale="en-US",
-        )
+        browser, context = await _launch_browser(pw, viewport={"width": 1400, "height": 900})
         page = await context.new_page()
 
         try:
@@ -1075,19 +1232,7 @@ async def _do_google_maps_directions(
     )
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
-        context = await browser.new_context(
-            user_agent=USER_AGENT,
-            viewport={"width": 1400, "height": 900},
-            locale="en-US",
-        )
+        browser, context = await _launch_browser(pw, viewport={"width": 1400, "height": 900})
         page = await context.new_page()
 
         try:
