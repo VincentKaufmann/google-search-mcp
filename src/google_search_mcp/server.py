@@ -196,33 +196,261 @@ async def _is_blocked(page) -> bool:
 
 
 async def _try_solve_captcha(page) -> bool:
-    """Attempt to solve a simple reCAPTCHA checkbox by clicking it with human-like movement."""
+    """Attempt to solve reCAPTCHA: first try checkbox click, then image challenge with neural net."""
     try:
-        # Look for the reCAPTCHA iframe
+        # Step 1: Try clicking the reCAPTCHA checkbox with human-like movement
         recaptcha_frame = page.frame_locator("iframe[src*='recaptcha']")
         checkbox = recaptcha_frame.locator("#recaptcha-anchor, .recaptcha-checkbox-border")
-        if await checkbox.count() == 0:
+        if await checkbox.count() > 0:
+            box = await checkbox.first.bounding_box()
+            if box:
+                x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
+                y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+
+                await page.mouse.move(x - random.randint(50, 150), y - random.randint(50, 150))
+                await page.wait_for_timeout(random.randint(100, 300))
+                await page.mouse.move(x, y, steps=random.randint(10, 25))
+                await page.wait_for_timeout(random.randint(200, 500))
+                await page.mouse.click(x, y)
+                await page.wait_for_timeout(random.randint(2000, 4000))
+
+                if not await _is_blocked(page):
+                    return True
+
+        # Step 2: Checkbox wasn't enough, try solving the image challenge
+        solved = await _solve_image_challenge(page)
+        if solved:
+            return True
+
+        return False
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Neural net CAPTCHA image challenge solver
+# ---------------------------------------------------------------------------
+
+CAPTCHA_MODEL_DIR = os.path.join(os.path.expanduser("~"), ".google_mcp_models")
+MOBILENET_ONNX = os.path.join(CAPTCHA_MODEL_DIR, "mobilenetv2-12.onnx")
+IMAGENET_LABELS_PATH = os.path.join(CAPTCHA_MODEL_DIR, "imagenet_labels.json")
+
+# Compact mapping of common reCAPTCHA prompt keywords to ImageNet class indices
+# ImageNet class index → label: https://gist.github.com/yrevar/942d3a0ac09ec9e5eb3a
+CAPTCHA_CLASS_MAP = {
+    "traffic light": [920],
+    "bus": [654, 779, 874],
+    "bicycle": [444, 671],
+    "motorcycle": [670, 665],
+    "car": [436, 468, 511, 609, 656, 717, 751, 817],
+    "taxi": [468],
+    "cab": [468],
+    "crosswalk": [],
+    "bridge": [839, 840],
+    "boat": [472, 484, 554, 625, 814, 914],
+    "airplane": [404, 405],
+    "plane": [404, 405],
+    "train": [466, 547, 705, 820, 829],
+    "truck": [555, 569, 656, 675, 717, 864, 867],
+    "fire hydrant": [714],
+    "hydrant": [714],
+    "parking meter": [704],
+    "stair": [900],
+    "mountain": [334, 979, 980],
+    "palm": [818],
+    "chimney": [],
+    "tractor": [866],
+}
+
+# ImageNet mean/std for preprocessing
+_IMAGENET_MEAN = [0.485, 0.456, 0.406]
+_IMAGENET_STD = [0.229, 0.224, 0.225]
+
+
+def _ensure_captcha_model() -> bool:
+    """Download MobileNetV2 ONNX model if not present. Returns True if model is available."""
+    os.makedirs(CAPTCHA_MODEL_DIR, exist_ok=True)
+    if os.path.isfile(MOBILENET_ONNX):
+        return True
+    try:
+        model_url = (
+            "https://github.com/onnx/models/raw/main/validated/vision/"
+            "classification/mobilenet/model/mobilenetv2-12.onnx"
+        )
+        req = urllib.request.Request(model_url, headers={"User-Agent": "NoAPI-MCP/1.0"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read()
+        with open(MOBILENET_ONNX, "wb") as f:
+            f.write(data)
+        return True
+    except Exception:
+        return False
+
+
+def _classify_cells(cells: list[bytes], prompt_keywords: list[str]) -> list[bool]:
+    """Classify a list of image cell bytes against CAPTCHA prompt keywords using MobileNetV2.
+
+    Returns a list of booleans indicating which cells match the prompt.
+    """
+    try:
+        import cv2
+        import numpy as np
+        import onnxruntime as ort
+    except ImportError:
+        return [False] * len(cells)
+
+    if not _ensure_captcha_model():
+        return [False] * len(cells)
+
+    session = ort.InferenceSession(MOBILENET_ONNX)
+    input_name = session.get_inputs()[0].name
+
+    # Build set of target class indices from prompt keywords
+    target_classes = set()
+    for keyword in prompt_keywords:
+        kw_lower = keyword.lower()
+        for captcha_key, class_indices in CAPTCHA_CLASS_MAP.items():
+            if captcha_key in kw_lower or kw_lower in captcha_key:
+                target_classes.update(class_indices)
+
+    if not target_classes:
+        return [False] * len(cells)
+
+    results = []
+    for cell_bytes in cells:
+        arr = np.frombuffer(cell_bytes, np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            results.append(False)
+            continue
+
+        # Preprocess: resize to 224x224, normalize, CHW, batch
+        img = cv2.resize(img, (224, 224))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = img.astype(np.float32) / 255.0
+        for c in range(3):
+            img[:, :, c] = (img[:, :, c] - _IMAGENET_MEAN[c]) / _IMAGENET_STD[c]
+        img = np.transpose(img, (2, 0, 1))  # CHW
+        img = np.expand_dims(img, 0)  # NCHW
+
+        outputs = session.run(None, {input_name: img})
+        logits = outputs[0][0]
+
+        # Softmax
+        exp_logits = np.exp(logits - np.max(logits))
+        probs = exp_logits / exp_logits.sum()
+
+        # Check if any target class is in top-10 predictions with decent confidence
+        top_indices = np.argsort(probs)[::-1][:10]
+        match = any(idx in target_classes for idx in top_indices)
+        # Also check if the top target class has > 5% probability
+        target_probs = [probs[idx] for idx in target_classes if idx < len(probs)]
+        if target_probs and max(target_probs) > 0.05:
+            match = True
+
+        results.append(match)
+
+    return results
+
+
+async def _solve_image_challenge(page) -> bool:
+    """Attempt to solve a reCAPTCHA image challenge using MobileNetV2 neural net."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return False
+
+    try:
+        # Find the challenge iframe (different from the checkbox iframe)
+        challenge_frame = None
+        for frame in page.frames:
+            if "recaptcha" in (frame.url or "") and "bframe" in (frame.url or ""):
+                challenge_frame = frame
+                break
+
+        if not challenge_frame:
             return False
 
-        # Move mouse in a slightly random arc then click (more human-like)
-        box = await checkbox.first.bounding_box()
-        if not box:
+        # Read the challenge prompt text
+        prompt_el = challenge_frame.locator(
+            ".rc-imageselect-desc-no-canonical, .rc-imageselect-desc, "
+            ".rc-imageselect-instructions"
+        )
+        if await prompt_el.count() == 0:
             return False
 
-        # Random offset within the checkbox area
-        x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
-        y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+        prompt_text = (await prompt_el.first.inner_text()).lower()
+        # Extract keywords from prompt like "Select all images with traffic lights"
+        prompt_keywords = [prompt_text]
 
-        # Move mouse with small random steps
-        await page.mouse.move(x - random.randint(50, 150), y - random.randint(50, 150))
-        await page.wait_for_timeout(random.randint(100, 300))
-        await page.mouse.move(x, y, steps=random.randint(10, 25))
-        await page.wait_for_timeout(random.randint(200, 500))
-        await page.mouse.click(x, y)
-        await page.wait_for_timeout(random.randint(2000, 4000))
+        # Find the image grid
+        grid = challenge_frame.locator("table.rc-imageselect-table, .rc-imageselect-target")
+        if await grid.count() == 0:
+            return False
 
-        # Check if CAPTCHA was resolved
+        # Take screenshot of the grid
+        grid_screenshot = await grid.first.screenshot()
+        if not grid_screenshot:
+            return False
+
+        # Determine grid size (3x3 or 4x4)
+        tiles = challenge_frame.locator("td.rc-imageselect-tile, .rc-image-tile-wrapper")
+        tile_count = await tiles.count()
+
+        if tile_count == 16:
+            grid_size = 4
+        else:
+            grid_size = 3  # default
+
+        # Split screenshot into grid cells
+        arr = np.frombuffer(grid_screenshot, np.uint8)
+        grid_img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if grid_img is None:
+            return False
+
+        h, w = grid_img.shape[:2]
+        cell_h, cell_w = h // grid_size, w // grid_size
+        cells = []
+        for row in range(grid_size):
+            for col in range(grid_size):
+                y1, y2 = row * cell_h, (row + 1) * cell_h
+                x1, x2 = col * cell_w, (col + 1) * cell_w
+                cell = grid_img[y1:y2, x1:x2]
+                _, cell_bytes = cv2.imencode(".png", cell)
+                cells.append(cell_bytes.tobytes())
+
+        # Classify each cell with the neural net
+        matches = _classify_cells(cells, prompt_keywords)
+
+        if not any(matches):
+            return False
+
+        # Click matching cells with human-like delays
+        for i, should_click in enumerate(matches):
+            if should_click:
+                row, col = divmod(i, grid_size)
+                tile_locator = tiles.nth(i)
+                if await tile_locator.count() > 0:
+                    box = await tile_locator.bounding_box()
+                    if box:
+                        x = box["x"] + box["width"] * random.uniform(0.3, 0.7)
+                        y = box["y"] + box["height"] * random.uniform(0.3, 0.7)
+                        await page.mouse.click(x, y)
+                        await page.wait_for_timeout(random.randint(300, 700))
+
+        # Wait for any new tiles to load (Google sometimes refreshes clicked tiles)
+        await page.wait_for_timeout(random.randint(1500, 3000))
+
+        # Click the verify button
+        verify_btn = challenge_frame.locator("#recaptcha-verify-button")
+        if await verify_btn.count() > 0:
+            await verify_btn.first.click()
+            await page.wait_for_timeout(random.randint(3000, 5000))
+
+        # Check if we passed
         return not await _is_blocked(page)
+
     except Exception:
         return False
 
