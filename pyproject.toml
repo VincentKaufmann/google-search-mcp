@@ -28,9 +28,13 @@ dependencies = [
     "mcp>=1.0.0",
     "playwright>=1.40.0",
     "opencv-python-headless>=4.8.0",
-    "rapidocr-onnxruntime>=1.4.0",
     "yt-dlp>=2024.0",
     "faster-whisper>=1.0.0",
+]
+
+[project.optional-dependencies]
+ocr = [
+    "rapidocr-onnxruntime>=1.4.0",
 ]
 
 [project.scripts]

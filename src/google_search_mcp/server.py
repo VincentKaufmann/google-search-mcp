@@ -44,6 +44,7 @@ import random
 import re
 import sqlite3
 import subprocess
+import sys
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
@@ -3515,6 +3516,20 @@ async def list_images(directory: str = "") -> str:
 # ocr_image (local OCR using RapidOCR - no internet needed)
 # ---------------------------------------------------------------------------
 
+def _ocr_dependency_message() -> str:
+    if sys.version_info >= (3, 13):
+        return (
+            "OCR support requires rapidocr-onnxruntime, which may not publish "
+            "Python 3.13 wheels yet. Use Python 3.10-3.12 for OCR, or install "
+            "a compatible rapidocr-onnxruntime build when one is available."
+        )
+
+    return (
+        "OCR support requires rapidocr-onnxruntime. Install the optional OCR "
+        "extra with: pip install \"noapi-google-search-mcp[ocr]\""
+    )
+
+
 @mcp.tool()
 async def ocr_image(image_source: str) -> str:
     """Extract text from an image using local OCR. No internet connection needed.
@@ -3537,7 +3552,7 @@ async def ocr_image(image_source: str) -> str:
     try:
         from rapidocr_onnxruntime import RapidOCR
     except ImportError:
-        return "rapidocr-onnxruntime is required for OCR. Install with: pip install rapidocr-onnxruntime"
+        return _ocr_dependency_message()
 
     # Handle base64 input
     tmp_base64_path = None
@@ -4608,7 +4623,7 @@ async def read_document(
             return (
                 f"Could not extract text from {filename}.\n"
                 "For text PDFs, install poppler-utils: sudo apt install poppler-utils\n"
-                "For scanned PDFs, ensure rapidocr-onnxruntime is installed."
+                f"For scanned PDFs, {_ocr_dependency_message()}"
             )
         return f"Document: {filename} ({size_kb:.0f} KB)\n\n{text}"
 

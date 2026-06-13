@@ -483,7 +483,8 @@ Detect all objects (OpenCV), crop each one, identify individually via Lens.
 
 #### `ocr_image` — Local OCR (offline)
 
-Extract text from images using RapidOCR. No internet needed.
+Extract text from images using RapidOCR. No internet needed. Requires the
+optional OCR extra: `pip install "noapi-google-search-mcp[ocr]"`.
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
@@ -644,12 +645,28 @@ pipx install noapi-google-search-mcp
 playwright install chromium
 ```
 
+OCR support is optional and pulls in RapidOCR:
+
+```bash
+pipx install "noapi-google-search-mcp[ocr]"
+playwright install chromium
+```
+
+If RapidOCR does not publish wheels for your Python version, install the base
+package without `[ocr]` or use Python 3.10-3.12 for OCR features.
+
 ### Install in a Virtual Environment
 
 ```bash
 python3 -m venv ~/.local/share/noapi-google-search-mcp
 ~/.local/share/noapi-google-search-mcp/bin/pip install noapi-google-search-mcp
 ~/.local/share/noapi-google-search-mcp/bin/playwright install chromium
+```
+
+For OCR in a virtual environment:
+
+```bash
+~/.local/share/noapi-google-search-mcp/bin/pip install "noapi-google-search-mcp[ocr]"
 ```
 
 ## Configuration
@@ -718,7 +735,7 @@ python -m google_search_mcp
 ```bash
 git clone https://github.com/VincentKaufmann/noapi-google-search-mcp.git
 cd google-search-mcp
-pip install -e .
+pip install -e ".[ocr]"
 playwright install chromium
 ```
 
