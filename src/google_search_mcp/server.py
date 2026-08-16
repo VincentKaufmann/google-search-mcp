@@ -4213,7 +4213,42 @@ async def extract_video_clip(
 # visit_page
 # ---------------------------------------------------------------------------
 
-MAX_PAGE_CHARS = 8000
+def _max_page_chars() -> int:
+    """How much page text `visit_page` returns before truncating.
+
+    Settable from the MCP client's `env` block, because 8000 characters is a
+    reasonable default and a bad universal answer — a research agent reading
+    long documentation wants more, a small local model wants less. Both
+    spellings are accepted: `MAX_PAGE_CHARS` matches this constant and the
+    usual convention for environment variables, and `max_characters` is what
+    people actually try first.
+
+        "web-search": {
+          "command": "noapi-google-search-mcp",
+          "env": { "MAX_PAGE_CHARS": "20000" }
+        }
+
+    Clamped to 200000. The ceiling is not timidity about big pages — it is
+    that this text lands in a model's context window, and a tool that can
+    silently return a megabyte turns one careless visit into a blown context
+    and a confusing bill. A value above the ceiling is clamped rather than
+    refused; a value that is not a number falls back to the default, because a
+    typo in a config file should not stop the server from starting.
+    """
+    for name in ("MAX_PAGE_CHARS", "max_characters"):
+        raw = os.environ.get(name)
+        if raw is None or not raw.strip():
+            continue
+        try:
+            value = int(raw.strip())
+        except ValueError:
+            continue
+        if value > 0:
+            return min(value, 200_000)
+    return 8000
+
+
+MAX_PAGE_CHARS = _max_page_chars()
 
 
 async def _fetch_page_text(url: str) -> str:

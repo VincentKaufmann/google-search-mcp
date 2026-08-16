@@ -691,6 +691,32 @@ Add to `~/.lmstudio/mcp.json`:
 
 If installed in a venv, use the full path: `~/.local/share/noapi-google-search-mcp/bin/noapi-google-search-mcp`
 
+### How much page text `visit_page` returns
+
+`visit_page` truncates at **8000 characters** by default. That suits a small
+local model and is not enough for reading long documentation, so it is
+settable from the same `env` block:
+
+```json
+{
+  "mcpServers": {
+    "google-search": {
+      "command": "noapi-google-search-mcp",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "MAX_PAGE_CHARS": "20000"
+      }
+    }
+  }
+}
+```
+
+`max_characters` is accepted as an alias. Values are clamped to 200000 —
+this text goes into a model's context window, and a tool that can return a
+megabyte turns one careless page visit into a blown context. A value that
+is not a positive number is ignored and the default is used, so a typo here
+cannot stop the server from starting.
+
 ### Claude Desktop
 
 Add to your Claude Desktop config (`claude_desktop_config.json`):
